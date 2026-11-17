@@ -28,7 +28,7 @@ test("requests retry 429 gently and surface permanent errors", async () => {
   await assert.rejects(request("https://example.test", {}, (async () => new Response("unavailable", { status: 503 })) as typeof fetch), /HTTP 503 unavailable/);
 });
 test("priority includes the ranked forty and original Start here, with empty input valid", () => {
-  const papers = Array.from({ length: 60 }, (_, i) => ({ id: String(i), doi: String(i), title: "Sleep finding " + i, year: 2020, citations: i, relevance: i, abstract: "", theme: "Sleep", coherent: true, rank: i } as Paper));
+  const papers: Paper[] = Array.from({ length: 60 }, (_, i) => ({ id: String(i), doi: String(i), title: "Sleep finding " + i, year: 2020, citations: i, relevance: i, authors: [], venue: "", url: "", pdf: "", abstract: "", takeaway: "", references: [], theme: "Sleep", coherent: true, rank: i }));
   const data = { papers, source: "OpenAlex" as const, total: 60, fetchedAt: "" };
   const selected = priorityPapers(data, "sleep");
   assert.equal(selected.length, 45);

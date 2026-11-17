@@ -22,7 +22,7 @@ export function enrichPaper(paper: Paper, metadata: Metadata | null | undefined)
 }
 export function priorityPapers(data: Dataset, query: string) {
   const ranked = finish(data.papers, data.source, query, data.total).papers;
-  const selected = new Set([...ranked.slice(0, 40), ...startHere(ranked), ...startHere(data.papers)].map(p => p.id));
+  const selected = new Set([...ranked.slice(0, 40), ...startHere(ranked, query), ...startHere(data.papers, query)].map(p => p.id));
   return data.papers.filter(p => selected.has(p.id));
 }
 export async function request(url: string, init: RequestInit = {}, fetcher = fetch, wait = pause): Promise<any> {
