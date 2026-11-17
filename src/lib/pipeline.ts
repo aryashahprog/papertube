@@ -18,6 +18,7 @@ export const clampQuery = (s: string) =>
 export interface Paper {
   id: string;
   doi: string;
+  pmid?: string;
   title: string;
   year: number;
   citations: number;
@@ -263,6 +264,7 @@ function oa(w: Raw): Paper {
     id: w.id,
     type: w.type,
     doi: w.doi || "",
+    pmid: String(w.ids?.pmid || "").match(/(?:^|\/)(\d+)\/?$/)?.[1],
     title: clean(w.title),
     year: publicationYear(w.publication_year, Number(w.publication_date?.slice(0, 4))),
     citations: w.cited_by_count || 0,
@@ -782,7 +784,7 @@ export async function discover(
     try { coolingDown = Number(sessionStorage.getItem(cooldownKey)) > Date.now(); } catch {}
     if (coolingDown) throw new RateLimitError("OpenAlex is busy");
     const select =
-      "id,doi,title,publication_year,publication_date,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
+      "id,doi,ids,title,publication_year,publication_date,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({
