@@ -115,7 +115,7 @@ export function reconstruct(index?: Record<string, number[]> | null) {
   );
   return words.join(" ");
 }
-export function takeaway(abstract: string) {
+function legacyTakeaway(abstract: string, limit = true) {
   const sentences =
     cleanAbstract(abstract)
       .replace(/\b(et al|e\.g|i\.e|Dr|Prof)\./gi, "$1\u2024")
@@ -148,8 +148,108 @@ export function takeaway(abstract: string) {
     .sort((a, b) => b.score - a.score);
   const text = ranked[0]?.text || "";
   return balance(
-    text.length > 210 ? text.slice(0, 200).replace(/\s+\S*$/, "") + "…" : text,
+    limit && text.length > 210 ? text.slice(0, 200).replace(/\s+\S*$/, "") + "…" : text,
   );
+}
+const layGlossary: [string, string][] = [
+  ["glycaemic control", "blood sugar control"],
+  ["glycemic control", "blood sugar control"],
+  ["cardiovascular", "heart"],
+  ["renal", "kidney"],
+  ["mortality", "death"],
+  ["adverse events", "side effects"],
+  ["efficacy", "effectiveness"],
+  ["placebo-controlled", "compared with a placebo"],
+  ["subjects", "people"],
+  ["participants", "people"],
+  ["obese people", "people with obesity"],
+  ["obese", "with obesity"],
+  ["in vivo", "in living animals"],
+  ["in vitro", "in the lab"],
+  ["bioaccumulate", "build up in the body"],
+  ["bioaccumulates", "builds up in the body"],
+  ["bioaccumulated", "built up in the body"],
+  ["bio-accumulated", "built up in the body"],
+  ["trophic levels", "the food chain"],
+  ["glucose concentrations", "blood sugar levels"],
+  ["glucose control", "blood sugar control"],
+  ["hypoglycaemia", "low blood sugar"],
+  ["hypoglycemia", "low blood sugar"],
+  ["efficacious", "effective"],
+  ["genome engineering", "gene editing"],
+  ["genome editing", "gene editing"],
+  ["genomic manipulation", "changing DNA"],
+  ["genetic perturbation", "gene modification"],
+  ["eukaryotic cells", "cells with a nucleus"],
+  ["marine organisms", "sea life"],
+  ["biota", "living things"],
+  ["clustered regularly interspaced short palindromic repeats", "CRISPR"],
+  ["Cas9-mediated", "Cas9-based"],
+  ["elucidate", "understand"],
+  ["functional organization of the genome", "organization of DNA"],
+  ["embrittlement", "becoming brittle"],
+  ["microcracking", "developing tiny cracks"],
+  ["microparticles", "tiny particles"],
+  ["ingestion", "swallowing"],
+  ["hydrophobic", "water-repelling"],
+  ["bioavailability", "availability to living things"],
+  ["ubiquitous", "widespread"],
+  ["can be used to facilitate", "can help with"],
+  ["can be categorized as either", "can be grouped as"],
+  ["short-acting compounds", "short-acting drugs"],
+  ["long-acting compounds", "long-acting drugs"],
+  ["short-lived receptor activation", "brief effects"],
+  ["activate the GLP-1 receptor continuously", "act continuously"],
+];
+function plainFinding(text: string) {
+  text = text.replace(/^(?:(?:results?(?:\s+shows?)?|conclusions?|interpretation|in summary)\b\s*[:,–—-]?\s*)+/i, "");
+  for (const [term, replacement] of layGlossary) {
+    text = text.replace(new RegExp(`\\b${term}\\b`, "gi"), match =>
+      match === match.toUpperCase() ? replacement.toUpperCase() :
+      /^[A-Z]/.test(match) ? replacement[0].toUpperCase() + replacement.slice(1) : replacement);
+  }
+  const words = text.trim().split(/\s+/);
+  if (words.length > 30) {
+    const short = words.slice(0, 30).join(" ");
+    const boundaries = [...short.matchAll(/[,;:]|\s+(?:and|but|whereas|while|which|by|with|in)\b/g)]
+      .filter(match => short.slice(0, match.index).split(/\s+/).length >= 8);
+    const boundary = boundaries.filter(match => /^[,;:]/.test(match[0])).at(-1) ??
+      boundaries.filter(match => /\b(?:by|with|in)$/.test(match[0])).at(-1) ?? boundaries.at(-1);
+    text = short.slice(0, boundary?.index ?? short.length)
+      .replace(/(?:\s+\b(?:a|an|the|and|or|of|in|with|by|to|for))+$|[\s,;:.!?]+$/gi, "") + ".";
+  }
+  return text.replace(/^[a-z]/, letter => letter.toUpperCase());
+}
+export function takeaway(abstract: string) {
+  const cleaned = cleanAbstract(abstract)
+    .replace(/(\d)·(?=\d)/g, "$1.")
+    .replace(/\b(Interpretation|Conclusions?|Findings|Methods|Funding)\s+(?=[A-Z])/g, ". $1: ")
+    .replace(/([.!?])\s*\.+/g, "$1")
+    .replace(/\([^()]*\)/g, "")
+    .replace(/\[[A-Z][A-Z\d\s-]+[a-z]?\]/g, "")
+    .replace(/\b(?:p(?:-value)?|n|HR|OR|RR)\s*[=<>≤≥:]\s*[−-]?(?:\d*\.\d+|\d+)(?:\s*%|\s*[×x]\s*10\s*\^?\s*[−-]?\d+)?/gi, "")
+    .replace(/\b(?:HR|OR|RR)\s+\d+(?:\.\d+)?\b/g, "")
+    .replace(/\b95%\s*CI\s*[:=]?\s*[−-]?\d*\.?\d+\s*(?:to|[-–])\s*[−-]?\d*\.?\d+/gi, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([,;:])(?:\s*[,;:])+/g, "$1")
+    .replace(/[,;:]\s*([.!?])/g, "$1")
+    .replace(/\s+/g, " ");
+  const sentences = cleaned
+    .replace(/\b(et al|e\.g|i\.e|Dr|Prof)\./gi, "$1\u2024")
+    .replace(/\b([A-Z])\.(?=\s+[a-z])/g, "$1\u2024")
+    .replace(/(\d)\.(?=\d)/g, "$1\u2024")
+    .match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [];
+  const ranked = sentences.map((sentence, index) => {
+    const text = sentence.replace(/\u2024/g, ".").trim();
+    const finding = /\b(?:we (?:found|find|show|demonstrate)|results? (?:show|suggest|highlight)|demonstrated?|suggests?|conclusions?|interpretation|in summary|these findings|associated with|reduced|increased|reveals?|outperform)\b/i.test(text);
+    const conclusion = /^(?:conclusions?|interpretation|in summary)\b/i.test(text);
+    const method = /\b(?:we aimed|this review discusses|methods?|participants were|subjects were|we (?:recruited|enrolled|assessed)|aims? to|these findings are important|future research|further studies)\b/i.test(text);
+    return { text, score: Number(finding) * 10 + Number(conclusion) * 3 - Number(method) * 12 - index * 0.02 };
+  }).filter(({ text }) => text.length > 35 &&
+    !/\b(?:review|background|has become|in recent years|is important|have evolved|function as part of|can be infected)\b/i.test(text))
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return legacyTakeaway(abstract);
+  return plainFinding(ranked[0].score > 0 ? ranked[0].text : legacyTakeaway(cleaned, false));
 }
 export function cutoff() {
   const d = new Date();

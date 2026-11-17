@@ -218,6 +218,69 @@ test("repository abstracts are rejected even when they share title tokens", () =
   }
   assert.ok(validatedAbstract("Container performance", "We evaluate container performance using Docker and report resource usage in production."));
 });
+test("takeaways prefer findings and conclusions over background and methods", () => {
+  for (const cue of ["We found", "Results show", "These findings suggest", "Conclusion:", "In summary,", "The treatment was associated with", "The treatment reduced", "The treatment increased"]) {
+    const finding = `${cue} better blood sugar control in people with diabetes.`;
+    const result = takeaway(`We aimed to assess a treatment in a large clinical trial. Methods: Participants were recruited from several hospitals. ${finding}`);
+    assert.match(result, /better blood sugar control/i);
+    assert.doesNotMatch(result, /aimed|Methods|recruited|Conclusion:|In summary/i);
+  }
+  assert.match(takeaway("This review discusses earlier treatment options and their history. We found fewer side effects with the new treatment."), /^We found/);
+  assert.equal(takeaway("We found reduced risk, HR 0·88, 95% CI 0·82-0·94; p Interpretation Treatment improved glycaemic control without increased hypoglycaemia."), "Treatment improved blood sugar control without increased low blood sugar.");
+});
+test("takeaways remove statistics, acronym brackets, parentheticals and citations", () => {
+  const result = takeaway("Results show reduced mortality (95% CI 0.70–0.90) (GLP-1 RA) [RCT] in participants (n=500), HR=0.80, OR 0.7, RR: 0.9, p < 0.001 [12, 13].");
+  assert.equal(result, "Reduced death in people.");
+  const unbracketed = takeaway("We found reduced mortality, 95% CI 0.7 to 0.9, n=500, p-value=0.02, compared with standard treatment.");
+  assert.doesNotMatch(unbracketed, /95%|CI|n=|p-value|0\.02/);
+  assert.match(takeaway("We found that one or 2 doses could help people with this condition."), /or 2 doses/);
+});
+test("takeaway glossary is conservative, case-preserving and word-boundary safe", () => {
+  const glossary = [
+    ["glycaemic control", "blood sugar control"], ["glycemic control", "blood sugar control"],
+    ["cardiovascular", "heart"], ["renal", "kidney"], ["mortality", "death"],
+    ["adverse events", "side effects"], ["efficacy", "effectiveness"],
+    ["placebo-controlled", "compared with a placebo"], ["subjects", "people"],
+    ["participants", "people"], ["obese people", "people with obesity"], ["obese", "with obesity"],
+    ["in vivo", "in living animals"], ["in vitro", "in the lab"],
+    ["bioaccumulate", "build up in the body"], ["bioaccumulates", "builds up in the body"],
+    ["bioaccumulated", "built up in the body"], ["trophic levels", "the food chain"],
+    ["bio-accumulated", "built up in the body"], ["glucose concentrations", "blood sugar levels"],
+    ["glucose control", "blood sugar control"], ["hypoglycaemia", "low blood sugar"],
+    ["hypoglycemia", "low blood sugar"], ["efficacious", "effective"],
+    ["genome engineering", "gene editing"], ["genome editing", "gene editing"],
+    ["genomic manipulation", "changing DNA"], ["genetic perturbation", "gene modification"],
+    ["eukaryotic cells", "cells with a nucleus"], ["marine organisms", "sea life"], ["biota", "living things"],
+    ["clustered regularly interspaced short palindromic repeats", "CRISPR"], ["Cas9-mediated", "Cas9-based"],
+    ["elucidate", "understand"], ["functional organization of the genome", "organization of DNA"],
+    ["embrittlement", "becoming brittle"], ["microcracking", "developing tiny cracks"], ["microparticles", "tiny particles"],
+    ["ingestion", "swallowing"], ["hydrophobic", "water-repelling"],
+    ["bioavailability", "availability to living things"], ["ubiquitous", "widespread"],
+    ["can be used to facilitate", "can help with"], ["can be categorized as either", "can be grouped as"],
+    ["short-acting compounds", "short-acting drugs"], ["long-acting compounds", "long-acting drugs"],
+    ["short-lived receptor activation", "brief effects"], ["activate the GLP-1 receptor continuously", "act continuously"],
+  ];
+  for (const [term, replacement] of glossary) {
+    assert.equal(takeaway(`We found that ${term} may affect outcomes in this setting.`), `We found that ${replacement} may affect outcomes in this setting.`);
+  }
+  assert.equal(takeaway("Cardiovascular outcomes were associated with renal outcomes."), "Heart outcomes were associated with kidney outcomes.");
+  assert.equal(takeaway("CARDIOVASCULAR outcomes were associated with RENAL outcomes."), "HEART outcomes were associated with KIDNEY outcomes.");
+  assert.match(takeaway("We found that adrenal outcomes may not improve with treatment."), /adrenal outcomes may not improve/);
+});
+test("takeaways end at a short clause or whole word and retain the legacy empty fallback", () => {
+  const clause = "We found that the treatment reduced side effects in people with diabetes";
+  const result = takeaway(`${clause}, while ${"additional ".repeat(35)}outcomes remained uncertain.`);
+  assert.equal(result, clause + ".");
+  assert.equal(takeaway(`${clause}, with an acceptable safety and tolerability profile ${"additional ".repeat(20)}detail.`), clause + ".");
+  assert.equal(takeaway(`We demonstrate that the new tool can make precise cuts at specific locations in human and mouse cells ${"additional ".repeat(20)}detail.`), "We demonstrate that the new tool can make precise cuts at specific locations.");
+  const long = takeaway(`We found ${"improved ".repeat(40)}outcomes.`);
+  assert.ok(long.split(/\s+/).length <= 30);
+  assert.match(long, /improved\.$/);
+  assert.doesNotMatch(long, /…/);
+  assert.equal(takeaway(""), "");
+  assert.equal(takeaway("Methods: We review the background."), "");
+  assert.equal(takeaway("Brief note."), "");
+});
 const p: Paper = {
   id: "a",
   doi: "10/a",
