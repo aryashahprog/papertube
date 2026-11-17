@@ -536,12 +536,12 @@ export function startHere(papers: Paper[], query?: string) {
     terms.every((term) => contains(normalized((p.topics || []).join(" ")), term));
   const eligible = papers.filter((p) =>
     p.coherent !== false &&
-    (!consensus || focused(p)) &&
     (query === undefined || terms.some((t) => contains(normalized(p.title), t)) || foundational(p)),
   );
   const qualified = eligible.filter((p) => query === undefined ||
     core.has(topic(p)) || foundational(p) || terms.every((t) => contains(normalized(p.title), t)));
-  return [...qualified, ...eligible.filter((p) => !qualified.includes(p))].slice(0, 5);
+  const ranked = [...qualified, ...eligible.filter((p) => !qualified.includes(p))];
+  return (consensus ? [...ranked.filter(focused), ...ranked.filter(p => !focused(p))] : ranked).slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
   return papers

@@ -928,6 +928,7 @@ test("OpenAlex citation-only records receive neutral relevance during discovery"
     const d = await discover("graph neural networks");
     assert.equal(d.papers.find((p) => p.id === "gat")?.relevance, 15);
     assert.deepEqual(d.papers[0].topics, ["Advanced Graph Neural Networks", "Machine learning"]);
+    assert.deepEqual(d.papers[0].topicNames, ["Advanced Graph Neural Networks"]);
   } finally {
     globalThis.fetch = original;
   }
@@ -964,6 +965,10 @@ test("OpenAlex snapshot canons include foundational diffusion, CRISPR and transf
   assert.equal(transformers.length, 5);
   assert.ok(transformers.some((p) => p.title === "Attention Is All You Need"));
   assert.ok(transformers.some((p) => p.title.startsWith("BERT:")));
+  const quantum = startHere(load("quantum-error-correction").papers, "quantum error correction");
+  assert.ok(quantum.some(p => /Stabilizer Codes/.test(p.title)));
+  assert.ok(quantum.some(p => /surface code threshold/.test(p.title)));
+  assert.ok(quantum.every(p => !/NISQ|supremacy|10th Anniversary Edition/i.test(p.title)));
   assert.ok(
     transformers.every(
       (p) =>
