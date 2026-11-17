@@ -14,6 +14,7 @@ import {
   matchesQuery,
   publicationYear,
   cluster,
+  mergeThemeLabels,
   suggestQuery,
   startHere,
   playThrough,
@@ -580,6 +581,103 @@ test("themes skip generic words, prefer phrases and cover outliers", () => {
   const sparse = [{ ...p, title: "A unique finding" }];
   cluster(sparse, "finding");
   assert.equal(sparse[0].theme, "Other");
+});
+test("OpenAlex themes use shared secondary topics and relabel misleading GAN names", () => {
+  const titles = ["Denoising Diffusion Probabilistic Models", "Denoising Diffusion Models for Image Generation", "Improved Denoising Diffusion Models", "Image Diffusion Models with Denoising"];
+  const papers = titles.map((title, i) => ({ ...p, id: title, doi: "", title,
+    theme: i === 0 ? "Other" : "Generative Adversarial Networks and Image Synthesis",
+    topics: [i === 0 ? "Probability Theory Research" : "Generative Adversarial Networks and Image Synthesis", "Diffusion Models and Applications"],
+  }));
+  const result = finish(papers, "OpenAlex", "diffusion models", 4);
+  assert.equal(result.papers.length, 4);
+  assert.ok(result.papers.every(p => p.theme === "Denoising Diffusion"));
+  const misleading = finish(papers.map(p => ({ ...p, topics: ["Generative Adversarial Networks and Image Synthesis"] })), "OpenAlex", "diffusion models", 4);
+  assert.ok(misleading.papers.every(p => /Diffusion/.test(p.theme) && !/Adversarial|Other/.test(p.theme)));
+});
+test("short theme labels merge duplicates and overlap rescues outliers without guessing", () => {
+  const make = (id: string, title: string, theme: string): Paper => ({ ...p, id, doi: "", title, theme });
+  const papers = [
+    make("a", "Sleep breathing apnea diagnosis", "Sleep Breathing Research"),
+    make("b", "Sleep breathing apnea treatment", "Sleep Breathing Techniques"),
+    make("c", "Sleep breathing apnea screening", "Sleep Breathing Research"),
+    make("d", "Sleep breathing apnea symptoms", "Sleep Breathing Techniques"),
+    make("e", "Sleep apnea breathing outcomes", "Other"),
+    make("f", "Sleep quantum entanglement", "Other"),
+  ];
+  const result = finish(papers, "OpenAlex", "sleep", papers.length);
+  assert.equal(result.papers.find(p => p.id === "e")?.theme, "Apnea");
+  assert.equal(result.papers.find(p => p.id === "f")?.theme, "Other");
+  assert.ok(result.papers.every(p => p.theme.length <= 24 && p.theme.split(/\s+/).length <= 3));
+  assert.deepEqual([...new Set(result.papers.map(p => p.theme))].sort(), ["Apnea", "Other"]);
+  assert.deepEqual(finish([], "OpenAlex", "sleep", 0).papers, []);
+  const cached = { ...result, fetchedAt: "2020-01-01" };
+  const refreshed = refreshDataset(cached, "sleep");
+  assert.equal(refreshed.fetchedAt, cached.fetchedAt);
+  assert.deepEqual(refreshed.papers.map(p => p.theme), result.papers.map(p => p.theme));
+  assert.ok(papers.every(p => p.theme !== "Sleep Breathing"));
+  const quantum = finish(["Quantum error correction codes", "Quantum error correction decoding"].map(title => ({ ...p, id: title, doi: "", title, theme: "Unrelated Topic" })), "OpenAlex", "quantum", 2);
+  assert.ok(quantum.papers.every(p => p.theme === "Error Correction"));
+});
+test("overlap ignores abstract boilerplate and labels end on complete short phrases", () => {
+  const papers = [
+    "Sleep Breathing Research", "Sleep Breathing Research", "Sleep Breathing Techniques",
+    "Heart, Mortality, and Health Research", "Heart, Mortality, and Health Research",
+    "Other",
+  ].map((theme, i) => ({ ...p, id: String(i), doi: "", title: i < 3 ? `Sleep breathing apnea ${i}` : i < 5 ? `Sleep heart mortality breathing apnea ${i}` : "Sleep quantum entanglement",
+    abstract: "We have shown that these results were significantly different between the two proposed methods.", theme }));
+  const result = finish(papers, "OpenAlex", "sleep", 6);
+  assert.equal(result.papers.find(p => p.id === "5")?.theme, "Other");
+  assert.ok(result.papers.some(p => p.theme === "Heart"));
+  assert.ok(result.papers.every(p => !/[,;:]$|\b(?:And|Of|In|For|With|The|To)$/.test(p.theme)));
+});
+test("all bundled themes are short and target snapshots keep Other below fifteen percent at load", () => {
+  for (const topic of examples) {
+    const name = topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const data = JSON.parse(readFileSync(new URL(`../../public/data/${name}.json`, import.meta.url), "utf8"));
+    const refreshed = refreshDataset(data, topic);
+    assert.ok(refreshed.papers.every(p => p.theme.length <= 24 && p.theme.split(/\s+/).length <= 3), topic);
+    const labels = new Set(refreshed.papers.map(p => p.theme));
+    assert.ok(labels.size >= 4 && labels.size <= 8, `${topic}: ${[...labels]}`);
+    assert.ok(![...labels].some(label => /^(?:Advanced Neural Network|Neural Networks|Topic Modeling)$/i.test(label)), topic);
+    assert.ok(![...labels].some(label => /^(?:Time|Evidence|Quality|Image|Environment)$|\b(?:Error|Quantum)$/i.test(label)), topic);
+    const wordSets = [...labels].filter(label => label !== "Other").map(label => new Set(label.toLowerCase().split(/\s+/).map(w => w.replace(/s$/, ""))));
+    assert.ok(wordSets.every((a, i) => wordSets.every((b, j) => i === j || ![...a].every(w => b.has(w)))), topic);
+    assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
+    if (["microplastics", "diffusion-models"].includes(name))
+      assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
+    if (name === "diffusion-models") {
+      const ddpm = refreshed.papers.find(p => /^Denoising Diffusion Probabilistic Models$/i.test(p.title));
+      assert.ok(ddpm && /Diffusion/.test(ddpm.theme), ddpm?.theme);
+    }
+  }
+});
+test("dominant query themes split by title and abstract into fitted subthemes", () => {
+  const groups = ["Marine Pollution", "Drinking Water", "Human Exposure", "Wastewater Treatment"];
+  const input = groups.flatMap((group, g) => Array.from({ length: 4 }, (_, i) => ({
+    ...p, id: `${g}-${i}`, doi: "", title: `Microplastics ${group} ${i}`,
+    abstract: `Microplastics in ${group.toLowerCase()} are examined here. The ${group.toLowerCase()} findings describe a distinct setting for plastic particles and their effects.`,
+    theme: "Microplastics and Plastic Pollution", topics: ["Microplastics and Plastic Pollution"],
+  })));
+  const result = finish(input, "OpenAlex", "microplastics", input.length);
+  const counts = new Map<string, number>();
+  result.papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+  assert.ok(counts.size >= 4 && counts.size <= 8, JSON.stringify([...counts]));
+  assert.ok(Math.max(...counts.values()) <= input.length / 2);
+  assert.ok(!counts.has("Microplastics") && !counts.has("Other"));
+  assert.ok(result.papers.every(p => p.theme.length <= 24 && p.theme.split(" ").length <= 3));
+  assert.ok(input.every(p => p.theme === "Microplastics and Plastic Pollution"));
+});
+test("theme cleanup merges word subsets, removes generic labels and retains complete terms", () => {
+  const labels = ["Image Diffusion", "Image Diffusion Models", "RNA", "CRISPR RNA", "Time", "Evidence", "Quality", "Image", "Environment", "Continuous Quantum Error", "Repetitive Quantum Error", "Operator Quantum Error", "Quantum Error Correction"];
+  const papers = labels.map((theme, i) => ({ ...p, id: String(i), theme }));
+  mergeThemeLabels(papers, "diffusion models");
+  assert.deepEqual(papers.slice(0, 4).map(p => p.theme), ["Image Diffusion", "Image Diffusion", "RNA", "RNA"]);
+  assert.ok(papers.slice(4, 12).every(p => p.theme === "Other"));
+  assert.equal(papers[12].theme, "Quantum Error Correction");
+  const marine = ["Microplastics Marine", "Transport Microplastics", "Evidence Microplastics"].map(theme => ({ ...p, theme }));
+  mergeThemeLabels(marine, "microplastics");
+  assert.deepEqual(marine.map(p => p.theme), ["Marine", "Transport", "Other"]);
+  assert.doesNotThrow(() => mergeThemeLabels([], ""));
 });
 test("non-research types are excluded and weak Crossref records are demoted", () => {
   const research = { ...p, title: "Sleep research", citations: 173, relevance: 1 };
