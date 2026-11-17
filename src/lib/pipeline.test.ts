@@ -66,6 +66,15 @@ test("questions match content across title and abstract without accepting unrela
   assert.ok(matchesQuery({ ...p, title: "Sleep memory consolidation" }, "what are the best papers about sleep and memory"));
   assert.ok(!matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
 });
+test("short topic phrases retain meaningful stop words", () => {
+  assert.ok(matchesQuery({ ...p, title: "Large language model capabilities" }, "large language models"));
+  assert.ok(!matchesQuery({ ...p, title: "Large language corpora" }, "large language models"));
+  assert.ok(!matchesQuery({ ...p, title: "Language acquisition" }, "language models"));
+  assert.ok(matchesQuery({ ...p, title: "Protein folding analysis" }, "protein folding analysis"));
+  assert.ok(!matchesQuery({ ...p, title: "Protein folding" }, "protein folding analysis"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "sleep and memory?"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "how sleep and memory"));
+});
 test("featured topics retain their previous exact-phrase matches", () => {
   const previous = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).map((w) => w.length > 4 ? w.replace(/s$/, "") : w).join(" ");
   for (const topic of examples) {

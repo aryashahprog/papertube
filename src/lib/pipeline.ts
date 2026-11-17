@@ -230,7 +230,13 @@ const filler = new Set([
 ]);
 function contentQuery(query: string) {
   if (examples.some((topic) => words(topic) === words(query))) return query;
-  const terms = words(query).split(" ").filter((word) => !filler.has(word));
+  const tokens = words(query).split(" ");
+  if (
+    tokens.length <= 4 &&
+    !query.includes("?") &&
+    !/^(what|how|why|which|who|when|where|is|are|can|does|do)$/.test(tokens[0])
+  ) return query;
+  const terms = tokens.filter((word) => !filler.has(word));
   return terms.join(" ") || words(query);
 }
 export const invalidQueryMessage =
