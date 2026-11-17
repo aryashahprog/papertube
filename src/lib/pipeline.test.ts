@@ -46,8 +46,11 @@ test("coarse publication dates use period end for since, not the fully specified
 test("badges retain the API total beyond eight items minus seen overlap", () => {
   const follow = { q: "test", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-01", seenIds: ["seen"], seenPapers: [{ id: "seen", date: "2025-01-02" }] };
   assert.equal(unreadTotal(674, [{ id: "seen", title: "Seen", date: "2025-01-02", year: 2025, url: "" }], follow), 673);
-  assert.equal(unreadTotal(674, [], follow), 673);
+  assert.equal(unreadTotal(674, [], follow), 674);
   assert.equal(unreadTotal(0, [], follow), 0);
+  const unread = { id: "new-source-id", title: "Unread", year: 2025, url: "" };
+  assert.equal(unreadTotal(1, [unread], follow), 1);
+  assert.equal(unreadTotal(0, [unread], follow), 1);
 });
 test("recent items reject missing titles, duplicates and out-of-window dates", () => {
   const paper = { id: "doi:1", title: "Real title", date: "2025-01-02", year: 2025, url: "https://example.org" };

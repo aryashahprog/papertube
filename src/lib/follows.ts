@@ -73,10 +73,7 @@ export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPa
 }
 export function unreadTotal(total: number, papers: RecentPaper[], follow: Follow): number {
   const overlap = new Set(papers.filter((p) => follow.seenIds.includes(p.id)).map((p) => p.id));
-  for (const p of follow.seenPapers || []) {
-    if (comparisonDate(p.date) >= follow.lastSeenAt.slice(0, 10)) overlap.add(p.id);
-  }
-  return Math.max(0, total - overlap.size);
+  return Math.max(unreadPapers(papers, follow.seenIds).length, total - overlap.size);
 }
 const countKey = (follow: Follow) => `pt-count-v4:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
 export function readCountCache(value: string | null, now = Date.now()): number | undefined {
