@@ -30,6 +30,7 @@ export interface Paper {
   takeaway: string;
   theme: string;
   topics?: string[];
+  topicNames?: string[];
   references: string[];
   rank: number;
   coherent?: boolean;
@@ -279,6 +280,7 @@ function oa(w: Raw): Paper {
     topics: [...(w.topics || []), ...(w.concepts || [])]
       .map((t: Raw) => clean(t.display_name))
       .filter(Boolean),
+    topicNames: (w.topics || []).map((t: Raw) => clean(t.display_name)).filter(Boolean),
     workType: w.type,
     retracted: w.is_retracted,
     references: w.referenced_works || [],
@@ -509,6 +511,11 @@ export function coherence(papers: Paper[], query: string) {
 export function startHere(papers: Paper[], query?: string) {
   const terms = query === undefined ? [] : queryTokens(query);
   const topic = (p: Paper) => p.topics?.[0] || p.theme;
+  const frequencies = [...new Set(terms)].map(term => ({ term, count: papers.filter(p => contains(normalized(p.title + " " + p.abstract), term)).length }))
+    .sort((a, b) => a.count - b.count);
+  const distinctive = frequencies.length > 1 && frequencies[0].count < frequencies[1].count ? frequencies[0].term : undefined;
+  const focused = (p: Paper) => !distinctive || contains(normalized(p.title + " " + (p.topicNames || [topic(p)]).join(" ")), distinctive);
+  const consensus = papers.filter(focused).length > papers.length / 2;
   const scores = new Map<string, number>();
   [...papers]
     .sort((a, b) => b.relevance - a.relevance)
@@ -529,6 +536,7 @@ export function startHere(papers: Paper[], query?: string) {
     terms.every((term) => contains(normalized((p.topics || []).join(" ")), term));
   const eligible = papers.filter((p) =>
     p.coherent !== false &&
+    (!consensus || focused(p)) &&
     (query === undefined || terms.some((t) => contains(normalized(p.title), t)) || foundational(p)),
   );
   const qualified = eligible.filter((p) => query === undefined ||
