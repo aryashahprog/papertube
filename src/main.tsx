@@ -20,6 +20,7 @@ import "@fontsource-variable/inter";
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
+import { createAbstractHydrator } from "./lib/abstracts";
 import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#bed6ae",
@@ -62,6 +63,7 @@ function App() {
   }, [q, follows]);
   const [input, setInput] = useState(q),
     [data, setData] = useState<Dataset | null>(null),
+    [loadedQuery, setLoadedQuery] = useState(""),
     [status, setStatus] = useState(""),
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
@@ -79,6 +81,7 @@ function App() {
   const closeRef = useRef<HTMLButtonElement>(null);
   const playRef = useRef<HTMLButtonElement>(null);
   const selection = useRef(`${q}\n${hot}`);
+  const hydrator = useRef<ReturnType<typeof createAbstractHydrator> | null>(null);
   function navigate(next: Record<string, string | undefined>) {
     const p = new URLSearchParams(location.search);
     Object.entries(next).forEach(([k, v]) => (v ? p.set(k, v) : p.delete(k)));
@@ -100,6 +103,7 @@ function App() {
   }, []);
   useEffect(() => {
     setInput(q);
+    setLoadedQuery("");
     setRecent([]);
     setRecentTotal(0);
     setSelected(null);
@@ -153,6 +157,7 @@ function App() {
         }
         if (active) {
           setData(result);
+          setLoadedQuery(q);
           const saved = readFollows(followsStorage);
           const previous = saved.find((f) => f.q === normalizeQuery(q));
           if (previous) {
@@ -207,6 +212,37 @@ function App() {
   const papers = (data?.papers || []).filter(
     (p) => !hot || p.year >= Number(cutoff().slice(0, 4)),
   );
+  useEffect(() => {
+    if (loading || !data || loadedQuery !== q) return;
+    const service = createAbstractHydrator({ onUpdate: paper => {
+      const merge = (previous: Paper) => previous.id === paper.id
+        ? { ...previous, abstract: paper.abstract, takeaway: paper.takeaway } : previous;
+      setData(previous => previous ? { ...previous, papers: previous.papers.map(merge) } : previous);
+      setSelected(previous => previous ? merge(previous) : previous);
+      setHover(previous => previous ? merge(previous) : previous);
+    } });
+    hydrator.current = service;
+    const visiblePapers = data.papers.filter(p => !hot || p.year >= Number(cutoff().slice(0, 4)));
+    const byId = new Map(visiblePapers.map(p => [p.id, p]));
+    startHere(visiblePapers, q).forEach(paper => { void service.enqueue(paper); });
+    if (selected) void service.enqueue(selected);
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        const paper = byId.get((entry.target as HTMLElement).dataset.paperId || "");
+        if (paper) void service.enqueue(paper);
+        observer.unobserve(entry.target);
+      }
+    });
+    document.querySelectorAll("[data-paper-id]").forEach(element => observer.observe(element));
+    return () => {
+      observer.disconnect();
+      service.abort();
+      if (hydrator.current === service) hydrator.current = null;
+    };
+  }, [q, loadedQuery, loading, hot, data?.fetchedAt]);
+  useEffect(() => {
+    if (selected) void hydrator.current?.enqueue(selected);
+  }, [selected?.id]);
   const themes = [...new Set(papers.map((p) => p.theme))];
   const years = papers.map((p) => p.year);
   const min = Math.min(...years),
@@ -543,7 +579,7 @@ function App() {
                 </div>
                 <div className="start-grid">
                   {startHere(papers, q).map((p, i) => (
-                    <article className="start-card" key={p.id}>
+                    <article className="start-card" key={p.id} data-paper-id={p.id}>
                       <div className="card-top">
                         <span className="number">0{i + 1}</span>
                         <span>
@@ -566,8 +602,7 @@ function App() {
                         <p className="takeaway">{p.takeaway}</p>
                       ) : (
                         <p className="byline citation-summary">
-                          {compact(p.citations)} citations · {p.year}
-                          {p.venue ? ` · ${p.venue}` : ""}
+                          {p.abstract ? "Open the paper for the full story." : "No abstract available yet. Read the paper for more."}
                         </p>
                       )}
                       <div className="card-bottom">
@@ -747,6 +782,7 @@ function App() {
                         <button
                           className="paper-row"
                           key={p.id}
+                          data-paper-id={p.id}
                           onClick={() => setSelected(p)}
                         >
                           <span className="row-year">{p.year}</span>

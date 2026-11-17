@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createAbstractHydrator } from "./abstracts";
 import {
   reconstruct,
   takeaway,
@@ -648,15 +649,17 @@ test("discovery requests and reads OpenAlex type and retraction metadata", async
       const select = new URL(String(url)).searchParams.get("select")?.split(",") || [];
       assert.ok(select.includes("type"));
       assert.ok(select.includes("is_retracted"));
+      assert.ok(select.includes("ids"));
       return Response.json({ meta: { count: 3 }, results: [
         { id: "data", title: "A finding", publication_year: 2020, type: "dataset" },
         { id: "retracted", title: "A finding", publication_year: 2020, type: "article", is_retracted: true },
-        { id: "paper", title: "A finding", publication_year: 2020, type: "preprint", is_retracted: false },
+        { id: "paper", title: "A finding", publication_year: 2020, type: "preprint", is_retracted: false, ids: { pmid: "https://pubmed.ncbi.nlm.nih.gov/12345/" } },
       ] });
     }) as typeof fetch;
     const d = await discover("finding");
     assert.deepEqual(d.papers.map((p) => p.id), ["paper"]);
     assert.equal(d.papers[0].workType, "preprint");
+    assert.equal(d.papers[0].pmid, "12345");
   } finally {
     globalThis.fetch = original;
   }
@@ -1065,4 +1068,120 @@ test("cancellation interrupts retry backoff and prevents further requests", asyn
     if (status.includes("Retrying")) controller.abort();
   }, undefined, controller.signal), { name: "AbortError" });
   assert.equal(calls, 4);
+});
+
+const abstractPaper: Paper = { ...p, id: "sleep", doi: "https://doi.org/10.1000/Sleep", title: "Sleep and memory", abstract: "", takeaway: "" };
+const sleepAbstract = "We found that sleep significantly improved memory in people after learning a new task.";
+function abstractCache() {
+  const values = new Map<string, string>();
+  return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+}
+test("runtime abstracts prefer exact Europe PMC DOI matches, clean text, share jobs and cache", async () => {
+  const storage = abstractCache(), updated: Paper[] = [], urls: string[] = [];
+  const fetcher = (async (url) => {
+    urls.push(String(url));
+    return Response.json({ resultList: { result: [
+      { doi: "10.1000/wrong", abstractText: "The wrong sleep abstract must not be used." },
+      { doi: "10.1000/sleep", abstractText: `<p>${sleepAbstract}</p> Copyright 2020 Authors.` },
+    ] } });
+  }) as typeof fetch;
+  const service = createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) });
+  await Promise.all([service.enqueue(abstractPaper), service.enqueue({ ...abstractPaper, id: "duplicate" })]);
+  assert.equal(urls.length, 1);
+  assert.equal(new URL(urls[0]).searchParams.get("query"), 'DOI:"10.1000/sleep"');
+  assert.equal(updated.length, 2);
+  assert.ok(updated.every(paper => paper.abstract === sleepAbstract && paper.takeaway === takeaway(sleepAbstract)));
+  service.abort();
+  const cached = createAbstractHydrator({ storage, fetcher: async () => { throw new Error("cached lookup should not fetch"); }, onUpdate: paper => updated.push(paper) });
+  await cached.enqueue(abstractPaper);
+  assert.equal(updated.length, 3);
+});
+test("runtime abstracts fall back to Semantic Scholar after errors, mismatches or missing PMC abstracts", async () => {
+  for (const response of [
+    new Response("", { status: 429 }),
+    Response.json({ resultList: { result: [] } }),
+    Response.json({ resultList: { result: [{ doi: "10.1000/other", abstractText: sleepAbstract }] } }),
+    Response.json({ resultList: { result: [{ doi: "10.1000/sleep", abstractText: "A completely unrelated description of polymer coatings." }] } }),
+    new Response("invalid JSON"),
+  ]) {
+    const urls: string[] = [], updated: Paper[] = [];
+    const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: paper => updated.push(paper), fetcher: (async url => {
+      urls.push(String(url));
+      return urls.length === 1 ? response : Response.json({ abstract: sleepAbstract });
+    }) as typeof fetch });
+    await service.enqueue(abstractPaper);
+    assert.equal(urls.length, 2);
+    assert.match(decodeURIComponent(urls[1]), /paper\/DOI:10.1000\/sleep\?fields=abstract$/);
+    assert.equal(updated[0].abstract, sleepAbstract);
+  }
+});
+test("runtime abstracts support PMID-only records and skip existing abstracts or absent identifiers", async () => {
+  const urls: string[] = [], updated: Paper[] = [];
+  const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: paper => updated.push(paper), fetcher: (async url => {
+    urls.push(String(url));
+    return Response.json({ resultList: { result: [{ source: "MED", id: "12345", abstractText: sleepAbstract }] } });
+  }) as typeof fetch });
+  await service.enqueue({ ...abstractPaper, abstract: sleepAbstract });
+  await service.enqueue({ ...abstractPaper, doi: "", id: "unknown", url: "" });
+  assert.equal(urls.length, 0);
+  await service.enqueue({ ...abstractPaper, doi: "", pmid: "12345" });
+  assert.equal(new URL(urls[0]).searchParams.get("query"), "EXT_ID:12345 AND SRC:MED");
+  assert.equal(updated[0].abstract, sleepAbstract);
+});
+test("runtime abstracts cap concurrent jobs at three", async () => {
+  let release!: () => void, active = 0, maximum = 0, calls = 0;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: () => {}, fetcher: (async url => {
+    calls++; maximum = Math.max(maximum, ++active);
+    await gate;
+    active--;
+    const query = new URL(String(url)).searchParams.get("query")!;
+    return Response.json({ resultList: { result: [{ doi: query.slice(5, -1), abstractText: sleepAbstract }] } });
+  }) as typeof fetch });
+  const pending = Array.from({ length: 7 }, (_, i) => service.enqueue({ ...abstractPaper, id: String(i), doi: `10.1000/sleep${i}` }));
+  assert.equal(calls, 3);
+  release();
+  await Promise.all(pending);
+  assert.equal(calls, 7);
+  assert.equal(maximum, 3);
+});
+test("runtime abstract cancellation aborts active requests, clears queued jobs and suppresses updates", async () => {
+  let calls = 0;
+  const signals: AbortSignal[] = [], updated: Paper[] = [], storage = abstractCache();
+  const service = createAbstractHydrator({ storage, onUpdate: paper => updated.push(paper), fetcher: (async (_url, init) => {
+    calls++;
+    const signal = init!.signal!;
+    signals.push(signal);
+    return new Promise<Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+  }) as typeof fetch });
+  const pending = Array.from({ length: 7 }, (_, i) => service.enqueue({ ...abstractPaper, id: String(i), doi: `10.1000/sleep${i}` }));
+  service.abort();
+  await Promise.all(pending);
+  await service.enqueue(abstractPaper);
+  assert.equal(calls, 3);
+  assert.ok(signals.every(signal => signal.aborted));
+  assert.equal(updated.length, 0);
+  assert.equal(storage.values.size, 0);
+});
+test("runtime abstracts fail silently, cache confirmed misses, tolerate storage errors and reject bad cached text", async () => {
+  const updated: Paper[] = [], storage = abstractCache();
+  let calls = 0;
+  const fetcher = (async url => {
+    calls++;
+    return String(url).includes("europepmc") ? Response.json({ resultList: { result: [] } }) : Response.json({ abstract: null });
+  }) as typeof fetch;
+  await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
+  await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
+  assert.equal(calls, 2);
+  assert.equal(updated.length, 0);
+  const failedStorage = abstractCache();
+  await createAbstractHydrator({ storage: failedStorage, fetcher: async () => { throw new TypeError("Network error"); }, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
+  assert.equal(failedStorage.values.size, 0);
+  const brokenStorage = { getItem: () => { throw new Error("Storage blocked"); }, setItem: () => { throw new Error("Storage full"); } };
+  await createAbstractHydrator({ storage: brokenStorage, fetcher: async () => Response.json({ resultList: { result: [{ doi: "10.1000/sleep", abstractText: sleepAbstract }] } }), onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
+  assert.equal(updated.length, 1);
+  storage.values.set("pt-abstract-v1:DOI:10.1000/sleep", JSON.stringify("A completely unrelated description of polymer coatings."));
+  await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
+  assert.equal(calls, 4);
+  assert.equal(updated.length, 1);
 });
