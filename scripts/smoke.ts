@@ -168,6 +168,6 @@ await page.route("https://api.crossref.org/**", (r) =>
   r.fulfill({ json: { message: { items: [], "total-results": 0 } } }),
 );
 await page.goto(base + "?q=smoke-empty-case");
-await page.getByText("No papers found. Try a broader topic.").waitFor();
+await page.getByText("No papers mention “smoke-empty-case”.").waitFor();
 console.log("PASS: explicit empty and index-error UI states");
 await browser.close();
