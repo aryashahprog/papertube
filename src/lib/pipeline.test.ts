@@ -9,6 +9,7 @@ import {
   RateLimitError,
   cleanAbstract,
   matchesQuery,
+  publicationYear,
   startHere,
   playThrough,
   examples,
@@ -203,6 +204,14 @@ test("Crossref citation-ranked results retain Unicode topic matches", async () =
   } finally {
     globalThis.fetch = original;
   }
+});
+test("publication years choose earlier dates and never exceed the current year", () => {
+  const year = new Date().getFullYear();
+  assert.equal(publicationYear(year + 1, year - 1), year - 1);
+  assert.equal(publicationYear(year + 1), year);
+  assert.equal(publicationYear(), 0);
+  assert.equal(publicationYear(NaN, -1, 0), 0);
+  assert.equal(finish([{ ...p, year: year + 1 }], "Crossref", "finding", 1).papers[0].year, year);
 });
 test("deduplication, junk filtering, empty results, ranking", () => {
   const d = finish(

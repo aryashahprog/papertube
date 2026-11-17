@@ -161,7 +161,7 @@ function oa(w: Raw): Paper {
     id: w.id,
     doi: w.doi || "",
     title: clean(w.title),
-    year: w.publication_year || 0,
+    year: publicationYear(w.publication_year, Number(w.publication_date?.slice(0, 4))),
     citations: w.cited_by_count || 0,
     relevance: w.relevance_score ?? -1,
     authors: (w.authorships || [])
@@ -182,6 +182,10 @@ function oa(w: Raw): Paper {
     rank: 0,
   };
 }
+export function publicationYear(...years: number[]) {
+  const valid = years.filter(y => Number.isInteger(y) && y > 0);
+  return valid.length ? Math.min(new Date().getFullYear(), ...valid) : 0;
+}
 function cross(w: Raw): Paper {
   const abstract = cleanAbstract(w.abstract);
   const doi = w.DOI || "";
@@ -189,7 +193,7 @@ function cross(w: Raw): Paper {
     id: "https://doi.org/" + doi,
     doi,
     title: clean(w.title?.[0]),
-    year: w.published?.["date-parts"]?.[0]?.[0] || 0,
+    year: publicationYear(...[w.published, w["published-online"], w["published-print"], w.issued].map(d => d?.["date-parts"]?.[0]?.[0])),
     citations: w["is-referenced-by-count"] || 0,
     relevance: w.score || 0,
     authors: (w.author || []).map((a: Raw) =>
@@ -424,7 +428,7 @@ export function finish(
       const k = (p.doi || p.id).toLowerCase().replace("https://doi.org/", "");
       const existing = unique.get(k);
       if (!existing || p.citations > existing.citations)
-        unique.set(k, { ...p, relevance: Math.max(p.relevance, existing?.relevance ?? -1) });
+        unique.set(k, { ...p, year: publicationYear(p.year), relevance: Math.max(p.relevance, existing?.relevance ?? -1) });
       else existing.relevance = Math.max(existing.relevance, p.relevance);
     });
   const publications: { paper: Paper; titles: Set<string> }[] = [];
@@ -577,7 +581,7 @@ export async function discover(
     try { coolingDown = Number(sessionStorage.getItem(cooldownKey)) > Date.now(); } catch {}
     if (coolingDown) throw new RateLimitError("OpenAlex is busy");
     const select =
-      "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
+      "id,doi,title,publication_year,publication_date,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({
@@ -630,7 +634,7 @@ export async function discover(
         query: searchQuery,
         rows: "100",
         select:
-          "DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score",
+          "DOI,title,author,published,published-online,published-print,issued,container-title,is-referenced-by-count,abstract,URL,link,score",
         mailto,
       });
     const d = await request(base);
