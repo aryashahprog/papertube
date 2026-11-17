@@ -110,7 +110,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
-    return { count, searchUrl, papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
+    return { count, searchUrl: "https://openalex.org/works?" + new URLSearchParams({ search: follow.q, filter: `publication_date:${date}-${today}` }), papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
       id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
       date: w.publication_date,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
@@ -124,7 +124,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
-    return { count, searchUrl, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
+    return { count, searchUrl: "https://search.crossref.org/search/works?" + new URLSearchParams({ q: follow.q, from_ui: "yes" }), papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
       id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
       date: w.published?.["date-parts"]?.[0]?.length >= 1 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,

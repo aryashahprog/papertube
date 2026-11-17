@@ -71,7 +71,7 @@ await page.goto(base + "?q=CRISPR");
 await page.getByRole("heading", { name: "New since your last visit" }).waitFor();
 assert.equal(await page.locator(".new-feed a").count(), 8);
 await page.getByText("Top 8 of 13", { exact: false }).waitFor();
-assert.match(await page.getByRole("link", { name: "See all ↗" }).getAttribute("href") || "", /from_publication_date/);
+assert.match(await page.getByRole("link", { name: "See all ↗" }).getAttribute("href") || "", /^https:\/\/openalex\.org\/works\?.*publication_date/);
 assert.equal(recentQueries[0].searchParams.get("search"), recentQueries.at(-1)!.searchParams.get("search"));
 assert.equal(recentQueries[0].searchParams.get("filter"), recentQueries.at(-1)!.searchParams.get("filter"));
 assert.equal(recentQueries.at(-1)!.searchParams.get("per-page"), "8");

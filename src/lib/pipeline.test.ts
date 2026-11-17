@@ -19,7 +19,25 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { seedFollow, comparisonDate, unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+import { recentBatch, seedFollow, comparisonDate, unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+test("recent feeds link to human search pages for the successful source", async () => {
+  const original = globalThis.fetch;
+  const follow = { q: "gene & crispr", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-02", seenIds: [] };
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 0 }, results: [] }))) as typeof fetch;
+    const openalex = new URL((await recentBatch(follow)).searchUrl);
+    assert.equal(openalex.origin + openalex.pathname, "https://openalex.org/works");
+    assert.equal(openalex.searchParams.get("search"), follow.q);
+    assert.equal(openalex.searchParams.get("filter"), `publication_date:2025-01-02-${new Date().toISOString().slice(0, 10)}`);
+    globalThis.fetch = (async (url) => String(url).includes("api.openalex.org") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 0, items: [] } }))) as typeof fetch;
+    const crossref = new URL((await recentBatch(follow)).searchUrl);
+    assert.equal(crossref.origin + crossref.pathname, "https://search.crossref.org/search/works");
+    assert.equal(crossref.searchParams.get("q"), follow.q);
+    assert.equal(crossref.searchParams.get("from_ui"), "yes");
+    globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
+    await assert.rejects(() => recentBatch(follow));
+  } finally { globalThis.fetch = original; }
+});
 test("following seeds current recent ids without advancing the visit and tolerates errors", async () => {
   const original = globalThis.fetch;
   const follow = { q: "test", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-02", seenIds: [] };
