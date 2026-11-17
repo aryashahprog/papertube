@@ -49,7 +49,8 @@ export interface RecentPaper { id: string; title: string; year: number; url: str
 export function cleanRecentPapers(papers: RecentPaper[], from: string, until: string): RecentPaper[] {
   const ids = new Set<string>(), titles = new Set<string>();
   return papers.filter((p) => {
-    if (typeof p.title !== "string" || !p.title.trim() || !p.date || p.date < from || p.date > until) return false;
+    const date = p.date?.length === 7 ? p.date + "-01" : p.date;
+    if (typeof p.title !== "string" || !p.title.trim() || !date || date < from || date > until) return false;
     const title = p.title.trim().toLowerCase().replace(/\s+/g, " ");
     if (ids.has(p.id) || titles.has(title)) return false;
     ids.add(p.id); titles.add(title);
@@ -110,7 +111,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     return { count, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
       id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
-      date: w.published?.["date-parts"]?.[0]?.length === 3 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
+      date: w.published?.["date-parts"]?.[0]?.length >= 2 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
     })), date, today) : [] };
   }

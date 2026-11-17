@@ -23,6 +23,7 @@ import { cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewP
 test("recent items reject missing titles, duplicates and out-of-window dates", () => {
   const paper = { id: "doi:1", title: "Real title", date: "2025-01-02", year: 2025, url: "https://example.org" };
   assert.deepEqual(cleanRecentPapers([paper, { ...paper, id: "other" }, { ...paper, title: "" }, { ...paper, date: "2099-01-01" }, { ...paper, date: "2024-01-01" }], "2025-01-01", "2025-01-31"), [paper]);
+  assert.deepEqual(cleanRecentPapers([{ ...paper, date: "2025-01" }], "2025-01-01", "2025-01-31"), [{ ...paper, date: "2025-01" }]);
 });
 test("same-day publications already shown are excluded from badges and feeds", async () => {
   const papers = [{ id: "seen", title: "Old", year: 2025, url: "https://example.org" }, { id: "new", title: "New", year: 2025, url: "https://example.org" }];
