@@ -204,11 +204,15 @@ const stop = new Set(
     " ",
   ),
 );
-const normalized = (s: string) =>
+const words = (s: string) =>
   clean(s)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+const normalized = (s: string) =>
+  words(s)
     .split(/\s+/)
     .map((w) => (w.length > 4 ? w.replace(/s$/, "") : w))
     .join(" ");
@@ -220,14 +224,30 @@ function queryTokens(query: string) {
     .split(" ")
     .filter((t) => t && !ignored.has(t));
 }
+const filler = new Set([
+  ...stop,
+  ..."what how why who which when where do does did can could would should be been being was were most important best key papers explain explaining explained about tell me us please they their than beat etc".split(" "),
+]);
+function contentQuery(query: string) {
+  if (examples.some((topic) => words(topic) === words(query))) return query;
+  const terms = words(query).split(" ").filter((word) => !filler.has(word));
+  return terms.join(" ") || words(query);
+}
+export const invalidQueryMessage =
+  "Type a topic in words — like “sleep and memory”.";
 export function matchesQuery(p: Paper, query: string) {
-  const terms = queryTokens(query);
-  if (!terms.length) return false;
-  const words = new Set(normalized(p.title + " " + p.abstract).split(" "));
-  const title = new Set(normalized(p.title).split(" "));
-  const topics = new Set(normalized((p.topics || []).join(" ")).split(" "));
-  return terms.every((t) => words.has(t)) ||
-    (terms.some((t) => title.has(t)) && terms.every((t) => topics.has(t)));
+  const phrase = normalized(contentQuery(query));
+  if (!phrase) return false;
+  const terms = [...new Set(phrase.split(" "))];
+  const contains = (text: string, term: string) =>
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u.test(term)
+      ? text.includes(term)
+      : (" " + text + " ").includes(" " + term + " ");
+  const texts = [p.title, p.abstract].map(normalized);
+  if (phrase.split(" ").length <= 3)
+    return texts.some((text) => contains(text, phrase));
+  return terms.filter((term) => contains(texts.join(" "), term)).length >=
+    Math.ceil(terms.length * 0.6);
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -431,6 +451,8 @@ export async function discover(
   progress: (s: string, partial?: Dataset) => void = () => {},
   key?: string,
 ): Promise<Dataset> {
+  if (!words(query)) throw new Error(invalidQueryMessage);
+  query = contentQuery(query);
   progress("Searching OpenAlex…");
   try {
     const select =
