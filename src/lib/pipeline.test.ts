@@ -14,6 +14,7 @@ import {
   matchesQuery,
   publicationYear,
   cluster,
+  mergeThemeLabels,
   suggestQuery,
   startHere,
   playThrough,
@@ -589,7 +590,7 @@ test("OpenAlex themes use shared secondary topics and relabel misleading GAN nam
   }));
   const result = finish(papers, "OpenAlex", "diffusion models", 4);
   assert.equal(result.papers.length, 4);
-  assert.ok(result.papers.every(p => p.theme === "Diffusion Models"));
+  assert.ok(result.papers.every(p => p.theme === "Denoising Diffusion"));
   const misleading = finish(papers.map(p => ({ ...p, topics: ["Generative Adversarial Networks and Image Synthesis"] })), "OpenAlex", "diffusion models", 4);
   assert.ok(misleading.papers.every(p => /Diffusion/.test(p.theme) && !/Adversarial|Other/.test(p.theme)));
 });
@@ -604,10 +605,10 @@ test("short theme labels merge duplicates and overlap rescues outliers without g
     make("f", "Sleep quantum entanglement", "Other"),
   ];
   const result = finish(papers, "OpenAlex", "sleep", papers.length);
-  assert.equal(result.papers.find(p => p.id === "e")?.theme, "Sleep Breathing");
+  assert.equal(result.papers.find(p => p.id === "e")?.theme, "Apnea");
   assert.equal(result.papers.find(p => p.id === "f")?.theme, "Other");
   assert.ok(result.papers.every(p => p.theme.length <= 24 && p.theme.split(/\s+/).length <= 3));
-  assert.deepEqual([...new Set(result.papers.map(p => p.theme))].sort(), ["Other", "Sleep Breathing"]);
+  assert.deepEqual([...new Set(result.papers.map(p => p.theme))].sort(), ["Apnea", "Other"]);
   assert.deepEqual(finish([], "OpenAlex", "sleep", 0).papers, []);
   const cached = { ...result, fetchedAt: "2020-01-01" };
   const refreshed = refreshDataset(cached, "sleep");
@@ -615,7 +616,7 @@ test("short theme labels merge duplicates and overlap rescues outliers without g
   assert.deepEqual(refreshed.papers.map(p => p.theme), result.papers.map(p => p.theme));
   assert.ok(papers.every(p => p.theme !== "Sleep Breathing"));
   const quantum = finish(["Quantum error correction codes", "Quantum error correction decoding"].map(title => ({ ...p, id: title, doi: "", title, theme: "Unrelated Topic" })), "OpenAlex", "quantum", 2);
-  assert.ok(quantum.papers.every(p => p.theme === "Quantum Error Correction"));
+  assert.ok(quantum.papers.every(p => p.theme === "Error Correction"));
 });
 test("overlap ignores abstract boilerplate and labels end on complete short phrases", () => {
   const papers = [
@@ -638,6 +639,9 @@ test("all bundled themes are short and target snapshots keep Other below fifteen
     const labels = new Set(refreshed.papers.map(p => p.theme));
     assert.ok(labels.size >= 4 && labels.size <= 8, `${topic}: ${[...labels]}`);
     assert.ok(![...labels].some(label => /^(?:Advanced Neural Network|Neural Networks|Topic Modeling)$/i.test(label)), topic);
+    assert.ok(![...labels].some(label => /^(?:Time|Evidence|Quality|Image|Environment)$|\b(?:Error|Quantum)$/i.test(label)), topic);
+    const wordSets = [...labels].filter(label => label !== "Other").map(label => new Set(label.toLowerCase().split(/\s+/).map(w => w.replace(/s$/, ""))));
+    assert.ok(wordSets.every((a, i) => wordSets.every((b, j) => i === j || ![...a].every(w => b.has(w)))), topic);
     assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
     if (["microplastics", "diffusion-models"].includes(name))
       assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
@@ -662,6 +666,18 @@ test("dominant query themes split by title and abstract into fitted subthemes", 
   assert.ok(!counts.has("Microplastics") && !counts.has("Other"));
   assert.ok(result.papers.every(p => p.theme.length <= 24 && p.theme.split(" ").length <= 3));
   assert.ok(input.every(p => p.theme === "Microplastics and Plastic Pollution"));
+});
+test("theme cleanup merges word subsets, removes generic labels and retains complete terms", () => {
+  const labels = ["Image Diffusion", "Image Diffusion Models", "RNA", "CRISPR RNA", "Time", "Evidence", "Quality", "Image", "Environment", "Continuous Quantum Error", "Repetitive Quantum Error", "Operator Quantum Error", "Quantum Error Correction"];
+  const papers = labels.map((theme, i) => ({ ...p, id: String(i), theme }));
+  mergeThemeLabels(papers, "diffusion models");
+  assert.deepEqual(papers.slice(0, 4).map(p => p.theme), ["Image Diffusion", "Image Diffusion", "RNA", "RNA"]);
+  assert.ok(papers.slice(4, 12).every(p => p.theme === "Other"));
+  assert.equal(papers[12].theme, "Quantum Error Correction");
+  const marine = ["Microplastics Marine", "Transport Microplastics", "Evidence Microplastics"].map(theme => ({ ...p, theme }));
+  mergeThemeLabels(marine, "microplastics");
+  assert.deepEqual(marine.map(p => p.theme), ["Marine", "Transport", "Other"]);
+  assert.doesNotThrow(() => mergeThemeLabels([], ""));
 });
 test("non-research types are excluded and weak Crossref records are demoted", () => {
   const research = { ...p, title: "Sleep research", citations: 173, relevance: 1 };

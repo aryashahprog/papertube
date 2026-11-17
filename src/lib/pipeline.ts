@@ -569,7 +569,8 @@ export function cluster(papers: Paper[], query: string, context = false) {
       return words.flatMap((_, i) => [1, 2, 3].flatMap(size => {
         const phrase = words.slice(i, i + size);
         const label = phrase.join(" ");
-        return phrase.length === size && label.length <= 24 && (!context || !/\b(?:large|linear|recurrent|adaptive|immune|environmental)$/.test(label)) && phrase.some(valid) && phrase.every((w, j) => valid(w) || (context && size > 1 && (queryRoots.has(themeWord(w)) || /^(?:models?|networks?)$/.test(w))) || (size > 1 && j === size - 1 && w === "loss")) ? [label] : [];
+        const informative = phrase.some(valid) || (context && size > 1 && phrase.includes("image") && phrase.some(w => queryRoots.has(themeWord(w))));
+        return phrase.length === size && label.length <= 24 && (!context || !incompleteTheme.test(label)) && informative && phrase.every((w, j) => valid(w) || (context && size > 1 && (queryRoots.has(themeWord(w)) || themeBareGeneric.has(w) || /^(?:models?|networks?)$/.test(w))) || (size > 1 && j === size - 1 && w === "loss")) ? [label] : [];
       }));
     }))];
   };
@@ -588,7 +589,7 @@ export function cluster(papers: Paper[], query: string, context = false) {
     const counts = new Map<string, number>();
     for (const p of uncovered) for (const w of (context ? titleTerms : terms).get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
     const coverage = (w: string) => counts.get(w) || 0;
-    const weight = (label: string) => context ? label.split(" ").length * (1 + (titleFrequency.get(label) || 0) / (freq.get(label) || 1)) : 1 + 0.4 * (label.split(" ").length - 1);
+    const weight = (label: string) => context ? label.split(" ").length ** 2 * (1 + (titleFrequency.get(label) || 0) / (freq.get(label) || 1)) : 1 + 0.4 * (label.split(" ").length - 1);
     candidates.sort(([a], [b]) => coverage(b) * weight(b) - coverage(a) * weight(a));
     const label = candidates[0]?.[0];
     if (!label || coverage(label) < 2) break;
@@ -622,10 +623,11 @@ export function cluster(papers: Paper[], query: string, context = false) {
       const best = [...phrases].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0]?.[0];
       if (best) expanded.set(label, best);
     }
-    papers.forEach(p => p.theme = expanded.get(p.theme.toLowerCase()) || p.theme);
+    papers.forEach(p => p.theme = themeLabel(expanded.get(p.theme.toLowerCase()) || p.theme, query) || "Other");
   }
 }
-const themeGeneric = new Set("beyond toward towards automated overview characteristics comprehensive survey surveys technology technologies clustered regularly interspaced short palindromic repeats then https http www github com available state art performance evaluation advanced research technique techniques study studies applications methods method analysis approach approaches model models network networks generative topic modeling neural not was were been being which who whose when where while between also both such other different however there all each including used uses present proposed propose show shown show demonstrate demonstrated provide provides compared obtained found significant significantly well two three first second one many much most some several further respectively across within without only".split(" "));
+const themeBareGeneric = new Set("time evidence quality image environment".split(" "));
+const themeGeneric = new Set([...themeBareGeneric, ..."beyond toward towards automated overview characteristics comprehensive survey surveys technology technologies clustered regularly interspaced short palindromic repeats then https http www github com available state art performance evaluation advanced research technique techniques study studies applications methods method analysis approach approaches model models network networks generative topic modeling neural not was were been being which who whose when where while between also both such other different however there all each including used uses present proposed propose show shown show demonstrate demonstrated provide provides compared obtained found significant significantly well two three first second one many much most some several further respectively across within without only".split(" ")]);
 const themeWord = (word: string) => word.replace(/s$/, "");
 const themeTokens = (text: string, query = "") => {
   const ignored = new Set([...stop, ...(query.toLowerCase().match(/[a-z]{3,}/g) || []), ...themeGeneric].map(themeWord));
@@ -639,6 +641,33 @@ function shortTheme(name: string) {
   if (words.length > 3 || trimmed.length > 24) return "";
   while (words.length && /^(and|of|in|for|with|the|to|augmented|based|guided|assisted)$/i.test(words.at(-1)!)) words.pop();
   return words.map(w => /^(?:rna|dna|crispr)$/i.test(w) ? w.toUpperCase() : /^[A-Z\d-]+$/.test(w) ? w : w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+const incompleteTheme = /\b(?:error|quantum|large|linear|recurrent|adaptive|immune|environmental|probabilistic|continuous|repetitive|operator|anti|efficient|plug)$/i;
+function themeLabel(name: string, query: string) {
+  const label = shortTheme(name);
+  if (!label || incompleteTheme.test(label)) return "";
+  const roots = themeTokens(query);
+  const words = label.split(" ");
+  const rest = words.filter(w => !roots.has(themeWord(w.toLowerCase())));
+  const useful = themeTokens(rest.join(" "));
+  const modality = rest.filter(w => !/^(?:models?|networks?)$/i.test(w)).join(" ");
+  if (!themeTokens(label).size || (rest.length && !useful.size && !/^image$/i.test(modality))) return "";
+  if (roots.size === 1 && rest.length && useful.size && !incompleteTheme.test(rest.join(" ")) && !/\bdenoising$/i.test(rest.join(" "))) return shortTheme(rest.join(" "));
+  return label;
+}
+export function mergeThemeLabels(papers: Paper[], query: string) {
+  papers.forEach(p => p.theme = themeLabel(p.theme, query) || "Other");
+  const labels = [...new Set(papers.map(p => p.theme))].filter(name => name !== "Other");
+  const words = (name: string) => new Set(name.toLowerCase().split(/\s+/).map(themeWord));
+  const roots = new Set((query.toLowerCase().match(/[a-z]{3,}/g) || []).map(themeWord));
+  const queryOnly = (name: string) => [...words(name)].every(w => roots.has(w));
+  const specific = labels.filter(name => !queryOnly(name));
+  const kept = (specific.length ? specific : labels).sort((a, b) => words(a).size - words(b).size || a.length - b.length);
+  papers.forEach(p => {
+    if (p.theme === "Other") return;
+    const tokens = words(p.theme);
+    p.theme = kept.find(label => [...words(label)].every(w => tokens.has(w))) || "Other";
+  });
 }
 function consensusTopics(papers: Paper[]) {
   const choices = (p: Paper) => [...new Set(p.topics?.slice(0, 3).filter(Boolean) || [])];
@@ -654,7 +683,7 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
   papers.forEach(p => groups.set(p.theme, [...(groups.get(p.theme) || []), p]));
   for (const [name, members] of groups) {
     if (name === "Other") continue;
-    let label = shortTheme(name);
+    let label = themeLabel(name, query);
     const words = themeTokens(label);
     const fit = members.filter(p => {
       const text = themeTokens(p.title + " " + p.abstract);
@@ -669,7 +698,7 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
         cluster(copies, "");
         copies.filter(p => p.theme !== "Other").forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
       }
-      label = shortTheme([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || "Other");
+      label = themeLabel([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || "Other", query);
     }
     members.forEach(p => p.theme = label || "Other");
   }
@@ -679,18 +708,30 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
     papers.forEach(p => dominant.set(p.theme, [...(dominant.get(p.theme) || []), p]));
     for (const [name, members] of dominant) {
       const queryOnly = themeTokens(name, query).size === 0;
-      if (name === "Other" || members.length < 4 || (members.length <= papers.length / 2 && !queryOnly)) continue;
+      if (name === "Other" || members.length < 4 || (dominant.size >= 4 && members.length <= papers.length / 2 && !queryOnly)) continue;
       const copies = members.map(p => ({ ...p }));
       cluster(copies, query, true);
-      const labels = new Set(copies.filter(p => p.theme !== "Other").map(p => shortTheme(p.theme)).filter(Boolean));
-      if (labels.size >= 2) members.forEach((p, i) => p.theme = shortTheme(copies[i].theme) || "Other");
+      mergeThemeLabels(copies, query);
+      const labels = new Set(copies.filter(p => p.theme !== "Other").map(p => p.theme));
+      if (labels.size >= 2) members.forEach((p, i) => p.theme = copies[i].theme);
     }
-    const canonical = new Map<string, string>();
-    papers.forEach(p => {
-      const key = p.theme.toLowerCase().split(/\s+/).map(themeWord).join(" ");
-      if (!canonical.has(key)) canonical.set(key, p.theme);
-      p.theme = canonical.get(key)!;
-    });
+    mergeThemeLabels(papers, query);
+    const citations = papers.map(p => p.citations).sort((a, b) => b - a);
+    const influential = citations[Math.floor(papers.length / 10)] || 1;
+    const queryRoots = themeTokens(query);
+    const anchors = papers.filter(p => p.theme === "Other" && !p.abstract && p.citations >= influential).slice(0, 3);
+    for (const anchor of anchors) {
+      const words = anchor.title.toLowerCase().match(/[a-z]{3,}/g) || [];
+      const candidates = words.flatMap((_, i) => [2, 3].flatMap(size => {
+        const phrase = words.slice(i, i + size);
+        const label = themeLabel(phrase.join(" "), query);
+        return phrase.length === size && label && phrase.some(w => queryRoots.has(themeWord(w))) && themeTokens(label, query).size ? [label] : [];
+      }));
+      const supported = candidates.map(label => ({ label, members: papers.filter(p => contains(normalized(p.title), normalized(label))) }))
+        .filter(group => group.members.length >= 2).sort((a, b) => b.members.length - a.members.length)[0];
+      if (supported) supported.members.forEach(p => { p.theme = supported.label; p.coherent = true; });
+    }
+    mergeThemeLabels(papers, query);
     const counts = new Map<string, number>();
     papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
     const keep = [...counts].filter(([name, n]) => name !== "Other" && n >= 2)
@@ -709,7 +750,8 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
         const label = themeTokens(profile.name);
         const title = themeTokens(p.title);
         const exact = themeTokens(profile.name, query).size > 0 && label.size > 0 && [...label].every(w => title.has(w));
-        const score = (shared.length < 2 && !exact) ? 0 : Number(exact) + shared.reduce((sum, w) =>
+        const distinctive = shared.some(w => title.has(w) && (profile.frequency.get(w) || 0) / profiles.reduce((sum, p) => sum + (p.frequency.get(w) || 0), 0) >= 0.7);
+        const score = (shared.length < 2 && !exact && !distinctive) ? 0 : Number(exact) + shared.reduce((sum, w) =>
           sum + (profile.frequency.get(w) || 0) / Math.max(1, profile.members), 0) / Math.sqrt(Math.max(1, vectors.get(p)!.size));
         return { name: profile.name, score };
       }).sort((a, b) => b.score - a.score);
@@ -718,7 +760,7 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
     });
     const sizes = new Map<string, number>();
     papers.forEach(p => sizes.set(p.theme, (sizes.get(p.theme) || 0) + 1));
-    if (Math.max(0, ...sizes.values()) <= papers.length / 2 || previous === papers.map(p => p.theme).join("\n")) break;
+    if ((sizes.size >= 4 && Math.max(0, ...sizes.values()) <= papers.length / 2) || previous === papers.map(p => p.theme).join("\n")) break;
   }
 }
 export function finish(
