@@ -342,6 +342,50 @@ test("discovery suggests from existing candidates without extra API calls", asyn
   assert.equal(result.suggestion, "diffusion models");
   assert.equal(calls, 3);
 });
+test("known words require a frequent close neighbor before correction", () => {
+  const typo = { ...p, title: "Quantm", abstract: "" };
+  assert.equal(suggestQuery([typo, { ...p, title: "Quantum computing", abstract: "" }], "quantm computing"), undefined);
+  assert.equal(suggestQuery([typo, {
+    ...p, title: "Quantum computing", abstract: "Quantum computing uses quantum effects.",
+  }], "quantm computing"), "quantum computing");
+  assert.equal(suggestQuery([{ ...typo, title: "Quantm quantm quantm" }, {
+    ...p, title: "Quantum computing", abstract: "Quantum states interact with quantum effects and quantum noise.",
+  }], "quantm computing"), "quantum computing");
+});
+test("real Crossref typo fixtures produce supported corrections without changing correct queries", async (t) => {
+  for (const [query, suggestion, count] of [
+    ["difusion modles", "diffusion models", 0],
+    ["quantm computing", "quantum computing", 0],
+    ["photosynthsis", undefined, 3],
+    ["diffusion models", undefined, undefined],
+    ["sleep and memory", undefined, undefined],
+  ] as const) {
+    const fixture = (kind: string) => JSON.parse(readFileSync(new URL(
+      `./fixtures/crossref-typos/${query.replaceAll(" ", "-")}-${kind}.json`, import.meta.url,
+    ), "utf8"));
+    const candidates = ["relevance", "cited", "proceedings"].flatMap(kind =>
+      fixture(kind).message.items.map((w: { title: string[]; abstract?: string }) => ({
+        ...p, title: w.title?.[0] || "", abstract: cleanAbstract(w.abstract),
+      })),
+    );
+    assert.equal(suggestQuery(candidates, query), suggestion, query);
+    let calls = 0;
+    const mock = t.mock.method(globalThis, "fetch", async (input: string) => {
+      calls++;
+      const url = new URL(String(input));
+      if (url.hostname === "api.openalex.org") return new Response("", { status: 503 });
+      return Response.json(fixture(url.searchParams.has("sort") ? "cited" :
+        url.searchParams.has("filter") ? "proceedings" : "relevance"));
+    });
+    const result = await discover(query);
+    mock.mock.restore();
+    assert.equal(result.suggestion, suggestion, query);
+    if (count !== undefined) assert.equal(result.papers.length, count, query);
+    else assert.ok(result.papers.length > 0, query);
+    assert.equal(calls, 6, query);
+    console.log(`${query}: ${result.papers.length} papers; suggestion: ${result.suggestion || "none"}`);
+  }
+});
 test("Crossref suggestions include citation candidates dropped by the relevance prefilter", async (t) => {
   let calls = 0;
   t.mock.method(globalThis, "fetch", async (url: string) => {

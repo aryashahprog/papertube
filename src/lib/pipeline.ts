@@ -400,18 +400,30 @@ export function suggestQuery(papers: Paper[], query: string) {
   if (!phrase || !/^[\p{Script=Latin}\p{N} ]+$/u.test(phrase) ||
     papers.some((paper) => matchesQuery(paper, query))) return;
   const frequency = new Map<string, number>();
-  for (const paper of papers)
-    for (const word of new Set(words(paper.title + " " + paper.abstract).split(" ")))
-      if (/^\p{Script=Latin}{3,32}$/u.test(word))
-        frequency.set(word, (frequency.get(word) || 0) + 1);
+  const abstractFrequency = new Map<string, number>();
+  for (const paper of papers) {
+    for (const [text, counts] of [
+      [paper.title + " " + paper.abstract, frequency],
+      [paper.abstract, abstractFrequency],
+    ] as const)
+      for (const word of words(text).split(" "))
+        if (/^\p{Script=Latin}{3,32}$/u.test(word))
+          counts.set(word, (counts.get(word) || 0) + 1);
+  }
   const known = new Set([...frequency.keys()].map(normalized));
+  const dominates = (candidate: string, word: string, counts: Map<string, number>) =>
+    (counts.get(candidate) || 0) >= Math.max(3, (counts.get(word) || 0) * 3);
   let changed = false;
   const corrected = phrase.split(" ").map((word) => {
-    if (known.has(normalized(word)) || !/^\p{Script=Latin}{3,32}$/u.test(word)) return word;
+    if (!/^\p{Script=Latin}{3,32}$/u.test(word)) return word;
     const limit = word.length <= 4 ? 1 : 2;
     let best = word, distance = limit + 1, count = 0;
     for (const [candidate, n] of frequency) {
       if (Math.abs(candidate.length - word.length) > limit) continue;
+      if (normalized(candidate) === normalized(word)) continue;
+      if (known.has(normalized(word)) &&
+        !dominates(candidate, word, frequency) &&
+        !dominates(candidate, word, abstractFrequency)) continue;
       const d = editDistance(word, candidate);
       if (d <= limit && (d < distance || (d === distance && n > count))) {
         best = candidate;
