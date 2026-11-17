@@ -39,7 +39,7 @@ export interface Paper {
 }
 export interface Dataset {
   papers: Paper[];
-  source: "OpenAlex" | "Crossref";
+  source: "OpenAlex" | "Crossref" | "Europe PMC";
   fetchedAt: string;
   total: number;
 }
@@ -380,12 +380,13 @@ export function playThrough(papers: Paper[]) {
     .sort((a, b) => a.year - b.year);
 }
 export function cluster(papers: Paper[], query: string) {
-  const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/)]);
+  const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/),
+    ..."glucagon like peptide receptor receptors agonist agonists type".split(" ")]);
   const tokens = (p: Paper) => {
     const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
     const valid = (w: string) => !ignored.has(w);
     return [...new Set(words.filter(valid).concat(words.slice(1).flatMap((w, i) =>
-      valid(words[i]) && valid(w) ? [words[i] + " " + w] : [])))];
+      valid(words[i]) && (valid(w) || w === "loss") ? [words[i] + " " + w] : [])))];
   };
   const freq = new Map<string, number>();
   papers.forEach((p) =>
@@ -504,7 +505,7 @@ export function finish(
   );
   papers.sort((a, b) => b.rank - a.rank);
   coherence(papers, query);
-  if (source === "Crossref") cluster(papers, query);
+  if (source !== "OpenAlex") cluster(papers, query);
   const counts = new Map<string, number>();
   papers.forEach((p) => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
   const keep = [...counts]
