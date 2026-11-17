@@ -19,7 +19,14 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+import { safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+test("throwing browser storage getters do not break reads or follow toggles", () => {
+  const host = Object.defineProperty({}, "localStorage", { get() { throw new Error("SecurityError"); } });
+  const storage = safeStorage("localStorage", host as typeof globalThis);
+  assert.deepEqual(readFollows(storage), []);
+  assert.equal(writeFollows(storage, []), false);
+  assert.doesNotThrow(() => storage.removeItem("key"));
+});
 test("recent works share count filters, map links, handle empty and reject errors", async () => {
   const original = globalThis.fetch;
   const follow = { q: "crispr", label: "CRISPR", followedAt: "2025-01-01", lastSeenAt: "2025-01-02", seenIds: [] };

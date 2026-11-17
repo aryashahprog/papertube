@@ -6,6 +6,17 @@ export interface Follow {
   seenIds: string[];
 }
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
+export function safeStorage(kind: "localStorage" | "sessionStorage", host = globalThis) {
+  return {
+    getItem(key: string): string | null {
+      try { return host[kind].getItem(key); } catch { return null; }
+    },
+    setItem(key: string, value: string) { host[kind].setItem(key, value); },
+    removeItem(key: string) { try { host[kind].removeItem(key); } catch {} },
+  };
+}
+export const followsStorage = safeStorage("localStorage");
+export const cacheStorage = safeStorage("sessionStorage");
 export const normalizeQuery = (q: string) => q.trim().replace(/\s+/g, " ").toLowerCase();
 export function readFollows(storage: Storage): Follow[] {
   try {
@@ -42,9 +53,9 @@ export interface RecentPaper { id: string; title: string; year: number; url: str
 const countKey = (follow: Follow) => `pt-count:${follow.q}:${follow.lastSeenAt}`;
 export function markTopicVisited(previous: Follow, updated: Follow) {
   try {
-    sessionStorage.removeItem(countKey(previous));
-    sessionStorage.removeItem(countKey(previous) + ":source");
-    sessionStorage.setItem(countKey(updated), "0");
+    cacheStorage.removeItem(countKey(previous));
+    cacheStorage.removeItem(countKey(previous) + ":source");
+    cacheStorage.setItem(countKey(updated), "0");
   } catch {}
 }
 async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[] }> {
@@ -56,7 +67,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
   }
   const params = { mailto: "papertube@users.noreply.github.com" };
   let source: string | null = null;
-  try { source = sessionStorage.getItem(countKey(follow) + ":source"); } catch {}
+  try { source = cacheStorage.getItem(countKey(follow) + ":source"); } catch {}
   try {
     if (items && source === "Crossref") throw new Error("Use counted source");
     const data = await request("https://api.openalex.org/works?" + new URLSearchParams({
@@ -65,7 +76,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     const count = data.meta?.count;
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
-    try { sessionStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
+    try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
     return { count, papers: items ? data.results.map((w: any) => ({
       id: w.id, title: w.title, year: w.publication_year,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
@@ -77,7 +88,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     const count = data.message?.["total-results"];
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
-    try { sessionStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
+    try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
     return { count, papers: items ? data.message.items.map((w: any) => ({
       id: "https://doi.org/" + w.DOI, title: w.title?.[0] || w.DOI,
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
@@ -87,14 +98,14 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
 }
 export async function countNewPapers(follow: Follow): Promise<number> {
   try {
-    const cached = sessionStorage.getItem(countKey(follow));
+    const cached = cacheStorage.getItem(countKey(follow));
     if (cached !== null && Number.isFinite(JSON.parse(cached))) return JSON.parse(cached);
   } catch {}
   const { count } = await recentWorks(follow, false);
-  try { sessionStorage.setItem(countKey(follow), JSON.stringify(count)); } catch {}
+  try { cacheStorage.setItem(countKey(follow), JSON.stringify(count)); } catch {}
   return count;
 }
 export async function recentPapers(follow: Follow): Promise<RecentPaper[]> {
-  try { if (sessionStorage.getItem(countKey(follow)) === "0") return []; } catch {}
+  try { if (cacheStorage.getItem(countKey(follow)) === "0") return []; } catch {}
   return (await recentWorks(follow, true)).papers;
 }

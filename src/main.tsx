@@ -18,7 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
-import { countNewPapers, markTopicVisited, newPaperIds, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
+import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, newPaperIds, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -35,7 +35,7 @@ const compact = (n: number) =>
     maximumFractionDigits: 1,
   }).format(n);
 function App() {
-  const [follows, setFollows] = useState<Follow[]>(() => readFollows(localStorage));
+  const [follows, setFollows] = useState<Follow[]>(() => readFollows(followsStorage));
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [newIds, setNewIds] = useState<string[]>([]);
   const [recent, setRecent] = useState<RecentPaper[]>([]);
@@ -126,7 +126,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = sessionStorage.getItem("pt-v5:" + q.toLowerCase());
+          const cached = cacheStorage.getItem("pt-v5:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -149,7 +149,7 @@ function App() {
         }
         if (active) {
           setData(result);
-          const saved = readFollows(localStorage);
+          const saved = readFollows(followsStorage);
           const previous = saved.find((f) => f.q === normalizeQuery(q));
           if (previous) {
             const ids = result.papers.map((p) => p.id);
@@ -158,17 +158,17 @@ function App() {
               const items = await recentPapers(previous);
               if (!active) return;
               setRecent(items);
-              const latest = readFollows(localStorage);
+              const latest = readFollows(followsStorage);
               const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: ids };
               const updated = latest.map((f) => f.q === previous.q ? visited : f);
-              if (writeFollows(localStorage, updated)) {
+              if (writeFollows(followsStorage, updated)) {
                 markTopicVisited(previous, visited);
                 setFollows(updated);
               }
             } catch {}
           }
           try {
-            sessionStorage.setItem(
+            cacheStorage.setItem(
               "pt-v5:" + q.toLowerCase(),
               JSON.stringify(result),
             );
@@ -411,13 +411,13 @@ function App() {
             </div>
             <div className="actions">
               <button aria-pressed={!!followed} disabled={loading || !data || !!error} onClick={() => {
-                const saved = readFollows(localStorage);
+                const saved = readFollows(followsStorage);
                 const now = new Date().toISOString();
                 const updated = followed ? saved.filter((f) => f.q !== normalizeQuery(q)) : [...saved, {
                   q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
                   seenIds: (data?.papers || []).map((p) => p.id),
                 }];
-                if (writeFollows(localStorage, updated)) { setFollows(updated); setNewIds([]); }
+                if (writeFollows(followsStorage, updated)) { setFollows(updated); setNewIds([]); }
               }}>{followed ? "Following ✓" : "Follow topic"}</button>
               <div className="toggle" aria-label="Paper selection">
                 <button
