@@ -19,7 +19,13 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+import { unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+test("badges retain the API total beyond eight items minus seen overlap", () => {
+  const follow = { q: "test", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-01", seenIds: ["seen"], seenPapers: [{ id: "seen", date: "2025-01-02" }] };
+  assert.equal(unreadTotal(674, [{ id: "seen", title: "Seen", date: "2025-01-02", year: 2025, url: "" }], follow), 673);
+  assert.equal(unreadTotal(674, [], follow), 673);
+  assert.equal(unreadTotal(0, [], follow), 0);
+});
 test("recent items reject missing titles, duplicates and out-of-window dates", () => {
   const paper = { id: "doi:1", title: "Real title", date: "2025-01-02", year: 2025, url: "https://example.org" };
   assert.deepEqual(cleanRecentPapers([paper, { ...paper, id: "other" }, { ...paper, title: "" }, { ...paper, date: "2099-01-01" }, { ...paper, date: "2024-01-01" }], "2025-01-01", "2025-01-31"), [paper]);
@@ -96,7 +102,7 @@ test("cheap counts use OpenAlex, fall back to Crossref, and reject dual failure"
       urls.push(String(url));
       return String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 7, items: [] } }));
     }) as typeof fetch;
-    assert.equal(await countNewPapers(follow), 0);
+    assert.equal(await countNewPapers(follow), 7);
     assert.match(urls.at(-1)!, /rows=8/);
     assert.match(urls.at(-1)!, /from-pub-date%3A2025-01-02/);
     globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;

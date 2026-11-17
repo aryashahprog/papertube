@@ -18,7 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
-import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
+import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -38,6 +38,8 @@ function App() {
   const [follows, setFollows] = useState<Follow[]>(() => readFollows(followsStorage));
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<RecentPaper[]>([]);
+  const [recentTotal, setRecentTotal] = useState(0);
+  const [recentUrl, setRecentUrl] = useState("");
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
@@ -97,6 +99,7 @@ function App() {
   useEffect(() => {
     setInput(q);
     setRecent([]);
+    setRecentTotal(0);
     setSelected(null);
     if (!q) {
       setData(null);
@@ -151,11 +154,14 @@ function App() {
           const previous = saved.find((f) => f.q === normalizeQuery(q));
           if (previous) {
             try {
-              const items = await recentPapers(previous);
+              const batch = await recentBatch(previous);
+              const items = batch.papers;
               if (!active) return;
               setRecent(items);
+              setRecentTotal(batch.total);
+              setRecentUrl(batch.searchUrl);
               const latest = readFollows(followsStorage);
-              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: [...new Set([...previous.seenIds, ...items.map((p) => p.id)])] };
+              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: [...new Set([...previous.seenIds, ...items.map((p) => p.id)])], seenPapers: [...(previous.seenPapers || []), ...items.filter((p) => p.date).map((p) => ({ id: p.id, date: p.date! }))] };
               const updated = latest.map((f) => f.q === previous.q ? visited : f);
               if (writeFollows(followsStorage, updated)) {
                 markTopicVisited(previous, visited);
@@ -471,8 +477,9 @@ function App() {
               </div>
             </div>
           </div>
-          {followed && !!recent.length && <section className="new-papers" aria-label="New since your last visit">
+          {followed && recentTotal > 0 && <section className="new-papers" aria-label="New since your last visit">
             <h2>New since your last visit</h2>
+            <p>Top {recent.length} of {recentTotal} · <a href={recentUrl} target="_blank" rel="noreferrer">See all ↗</a></p>
             <div className="new-feed">{recent.map((p) =>
               <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.date || p.year} ↗</small></a>)}</div>
           </section>}

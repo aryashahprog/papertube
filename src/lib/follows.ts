@@ -4,6 +4,7 @@ export interface Follow {
   followedAt: string;
   lastSeenAt: string;
   seenIds: string[];
+  seenPapers?: { id: string; date: string }[];
 }
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
 export function safeStorage(kind: "localStorage" | "sessionStorage", host = globalThis) {
@@ -29,6 +30,7 @@ export function readFollows(storage: Storage): Follow[] {
         !Number.isFinite(Date.parse(f.lastSeenAt)) || !Array.isArray(f.seenIds) ||
         !f.seenIds.every((id: unknown) => typeof id === "string")) return false;
       f.q = normalizeQuery(f.q);
+      if (!Array.isArray(f.seenPapers) || !f.seenPapers.every((p: any) => typeof p?.id === "string" && typeof p.date === "string")) delete f.seenPapers;
       if (queries.has(f.q)) return false;
       queries.add(f.q);
       return true;
@@ -61,7 +63,14 @@ export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPa
   const seen = new Set(seenIds);
   return papers.filter((p) => !seen.has(p.id));
 }
-const countKey = (follow: Follow) => `pt-count-v3:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
+export function unreadTotal(total: number, papers: RecentPaper[], follow: Follow): number {
+  const overlap = new Set(papers.filter((p) => follow.seenIds.includes(p.id)).map((p) => p.id));
+  for (const p of follow.seenPapers || []) {
+    if (p.date >= follow.lastSeenAt.slice(0, 10)) overlap.add(p.id);
+  }
+  return Math.max(0, total - overlap.size);
+}
+const countKey = (follow: Follow) => `pt-count-v4:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
 export function readCountCache(value: string | null, now = Date.now()): number | undefined {
   try {
     const entry = JSON.parse(value || "null");
@@ -75,7 +84,7 @@ export function markTopicVisited(previous: Follow, updated: Follow) {
     cacheStorage.removeItem(countKey(updated));
   } catch {}
 }
-async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[] }> {
+async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[]; searchUrl: string }> {
   const date = follow.lastSeenAt.slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
   async function request(url: string) {
@@ -88,27 +97,29 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
   try { source = cacheStorage.getItem(countKey(follow) + ":source"); } catch {}
   try {
     if (items && source === "Crossref") throw new Error("Use counted source");
-    const data = await request("https://api.openalex.org/works?" + new URLSearchParams({
+    const searchUrl = "https://api.openalex.org/works?" + new URLSearchParams({
       ...params, search: follow.q, filter: `from_publication_date:${date},to_publication_date:${today}`, "per-page": items ? "8" : "1", sort: "cited_by_count:desc",
-    }));
+    });
+    const data = await request(searchUrl);
     const count = data.meta?.count;
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
-    return { count, papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
+    return { count, searchUrl, papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
       id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
       date: w.publication_date,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
     })), date, today) : [] };
   } catch {
-    const data = await request("https://api.crossref.org/works?" + new URLSearchParams({
+    const searchUrl = "https://api.crossref.org/works?" + new URLSearchParams({
       ...params, query: follow.q, filter: `from-pub-date:${date},until-pub-date:${today}`, rows: items ? "8" : "0", sort: "is-referenced-by-count", order: "desc",
-    }));
+    });
+    const data = await request(searchUrl);
     const count = data.message?.["total-results"];
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
-    return { count, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
+    return { count, searchUrl, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
       id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
       date: w.published?.["date-parts"]?.[0]?.length >= 2 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
@@ -121,10 +132,15 @@ export async function countNewPapers(follow: Follow): Promise<number> {
     const cached = readCountCache(cacheStorage.getItem(countKey(follow)));
     if (cached !== undefined) return cached;
   } catch {}
-  const count = unreadPapers((await recentWorks(follow, true)).papers, follow.seenIds).length;
+  const batch = await recentWorks(follow, true);
+  const count = unreadTotal(batch.count, batch.papers, follow);
   try { cacheStorage.setItem(countKey(follow), JSON.stringify({ count, expiresAt: Date.now() + 600000 })); } catch {}
   return count;
 }
 export async function recentPapers(follow: Follow): Promise<RecentPaper[]> {
-  return unreadPapers((await recentWorks(follow, true)).papers, follow.seenIds);
+  return (await recentBatch(follow)).papers;
+}
+export async function recentBatch(follow: Follow) {
+  const batch = await recentWorks(follow, true);
+  return { papers: unreadPapers(batch.papers, follow.seenIds), total: unreadTotal(batch.count, batch.papers, follow), searchUrl: batch.searchUrl };
 }
