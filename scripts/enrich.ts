@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
-import { cleanAbstract, takeaway, finish, startHere, type Dataset, type Paper } from "../src/lib/pipeline";
+import { validatedAbstract, takeaway, finish, startHere, type Dataset, type Paper } from "../src/lib/pipeline";
 
 type Metadata = { abstract?: string; publicationTypes?: string[] };
 type Cache = { s2: Record<string, Metadata | null>; pmc: Record<string, Metadata | null> };
@@ -17,7 +17,7 @@ export function workType(types: string[] = []) {
   })) if (aliases.some(t => normalized.includes(t))) return type;
 }
 export function enrichPaper(paper: Paper, metadata: Metadata | null | undefined) {
-  const abstract = cleanAbstract(metadata?.abstract || paper.abstract);
+  const abstract = validatedAbstract(paper.title, metadata?.abstract) || validatedAbstract(paper.title, paper.abstract);
   return { ...paper, abstract, takeaway: takeaway(abstract), ...(workType(metadata?.publicationTypes) ? { type: workType(metadata?.publicationTypes) } : {}) };
 }
 export function priorityPapers(data: Dataset, query: string) {
@@ -52,7 +52,7 @@ export async function main() {
       data.papers = data.papers.map(p => {
         const id = doi(p.doi || "");
         const s2 = cache.s2[id], pmc = cache.pmc[id];
-        return enrichPaper(p, { abstract: s2?.abstract || pmc?.abstract, publicationTypes: [...(s2?.publicationTypes || []), ...(pmc?.publicationTypes || [])] });
+        return enrichPaper(p, { abstract: validatedAbstract(p.title, s2?.abstract) || validatedAbstract(p.title, pmc?.abstract), publicationTypes: [...(s2?.publicationTypes || []), ...(pmc?.publicationTypes || [])] });
       });
       await writeFile(join(directory, file), JSON.stringify(data));
     }
@@ -61,7 +61,8 @@ export async function main() {
   const ids = [...new Set(datasets.flatMap(({ file, data }) => priorityPapers(data, file.replace(/\.json$/, "").replace(/-/g, " ")).map(p => doi(p.doi || "")).filter(Boolean)))];
   console.log(`Prioritized ${ids.length} unique DOIs; cached metadata saved`);
   let failed = false;
-  for (const id of ids.filter(id => !cache.s2[id]?.abstract && !(id in cache.pmc))) {
+  const titles = new Map(datasets.flatMap(({ data }) => data.papers.map(p => [doi(p.doi || ""), p.title] as const)));
+  for (const id of ids.filter(id => !validatedAbstract(titles.get(id), cache.s2[id]?.abstract) && !(id in cache.pmc))) {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" + new URLSearchParams({ query: `DOI:"${id}"`, resultType: "core", format: "json" });
     try {
       const data = await request(url);
@@ -77,7 +78,7 @@ export async function main() {
     }
     await pause(1000);
   }
-  const missing = ids.filter(id => !(id in cache.s2) && (!cache.pmc[id]?.abstract || !cache.pmc[id]?.publicationTypes?.length));
+  const missing = ids.filter(id => !(id in cache.s2) && (!validatedAbstract(titles.get(id), cache.pmc[id]?.abstract) || !cache.pmc[id]?.publicationTypes?.length));
   for (let i = 0; i < missing.length; i += 500) {
     if (i > 0) await pause(60000);
     const batch = missing.slice(i, i + 500);

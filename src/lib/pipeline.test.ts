@@ -8,6 +8,7 @@ import {
   discover,
   RateLimitError,
   cleanAbstract,
+  validatedAbstract,
   matchesQuery,
   publicationYear,
   cluster,
@@ -202,6 +203,21 @@ test("abstract reconstruction and finding extraction", () => {
   );
   assert.equal(takeaway(""), "");
 });
+test("abstract sanity retains distinctive title matches and rejects unrelated or missing text", () => {
+  assert.equal(validatedAbstract("Graph networks", "<p>These graph networks improve classification.</p>"), "These graph networks improve classification.");
+  assert.equal(validatedAbstract("Neural networks", "A neural network predicts protein structures."), "A neural network predicts protein structures.");
+  assert.equal(validatedAbstract("AI methods", "We evaluate AI across benchmarks."), "We evaluate AI across benchmarks.");
+  assert.equal(validatedAbstract("Graph networks", "The study presents a new model for sleep."), "");
+  assert.equal(validatedAbstract("Graph networks", ""), "");
+  assert.equal(validatedAbstract("", "Graph networks improve classification."), "");
+  assert.equal(validatedAbstract("A new study", "A new study improves prediction."), "");
+});
+test("repository abstracts are rejected even when they share title tokens", () => {
+  for (const instructions of ["docker pull example/model", "pip install example", "python -m pip install example", "git clone https://example.test/project", "```python\ntrain()\n```", "## Usage\nRun the model", "Installation:\nInstall the package", "1. System Requirements\nLinux"]) {
+    assert.equal(validatedAbstract("Denoising Diffusion Probabilistic Models", `We study diffusion.\n${instructions}`), "", instructions);
+  }
+  assert.ok(validatedAbstract("Container performance", "We evaluate container performance using Docker and report resource usage in production."));
+});
 const p: Paper = {
   id: "a",
   doi: "10/a",
@@ -219,6 +235,14 @@ const p: Paper = {
   references: [],
   rank: 0,
 };
+test("finish sanitizes stored abstracts and stale takeaways without mutating input", () => {
+  const paper = { ...p, title: "Diffusion image synthesis", abstract: "Diffusion models. docker pull example/model", takeaway: "An unrelated result." };
+  const result = finish([paper], "OpenAlex", "diffusion", 1);
+  assert.equal(result.papers.length, 1);
+  assert.equal(result.papers[0].abstract, "");
+  assert.equal(result.papers[0].takeaway, "");
+  assert.equal(paper.takeaway, "An unrelated result.");
+});
 test("Unicode queries match accents and unspaced Chinese titles", () => {
   assert.ok(matchesQuery({ ...p, title: "基于机器学习的图像研究" }, "机器学习"));
   assert.ok(matchesQuery({ ...p, title: "Protein and proteine folding" }, "protéine"));

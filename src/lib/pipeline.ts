@@ -157,7 +157,7 @@ export function cutoff() {
   return d.toISOString().slice(0, 10);
 }
 function oa(w: Raw): Paper {
-  const abstract = cleanAbstract(reconstruct(w.abstract_inverted_index));
+  const abstract = validatedAbstract(w.title, reconstruct(w.abstract_inverted_index));
   return {
     id: w.id,
     type: w.type,
@@ -189,7 +189,7 @@ export function publicationYear(...years: number[]) {
   return valid.length ? Math.min(new Date().getFullYear(), ...valid) : 0;
 }
 function cross(w: Raw): Paper {
-  const abstract = cleanAbstract(w.abstract);
+  const abstract = validatedAbstract(w.title?.[0], w.abstract);
   const doi = w.DOI || "";
   return {
     id: "https://doi.org/" + doi,
@@ -241,6 +241,13 @@ const contains = (text: string, term: string) =>
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u.test(term)
     ? text.includes(term)
     : (" " + text + " ").includes(" " + term + " ");
+export function validatedAbstract(title = "", value = "") {
+  if (/```|\b(?:docker\s+(?:run|pull|build|compose)|pip3?\s+install|python\s+-m\s+pip\s+install|npm\s+(?:install|ci)|git\s+clone)\b/i.test(value) ||
+      /(?:^|\n)\s*(?:#{1,6}\s*|\d+(?:\.\d+)*[.)]?\s+)?(?:usage|installation|getting started|system requirements|how to (?:use|install))\s*(?:[:\n]|$)/i.test(value)) return "";
+  const abstract = cleanAbstract(value);
+  const terms = normalized(title).split(" ").filter(t => t.length >= 2 && /\p{L}/u.test(t) && !stop.has(t) && !stop.has(t + "s"));
+  return terms.some(term => contains(normalized(abstract), term)) ? abstract : "";
+}
 const filler = new Set([
   ...stop,
   ..."what how why who which when where do does did can could would should be been being was were most important best key papers explain explaining explained about tell me us please they their than beat etc".split(" "),
@@ -431,6 +438,10 @@ export function finish(
   ]);
   const unique = new Map<string, Paper>();
   input
+    .map(p => {
+      const abstract = validatedAbstract(p.title, p.abstract);
+      return { ...p, abstract, takeaway: takeaway(abstract) };
+    })
     .filter(
       (p) =>
         p.title &&
