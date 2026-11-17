@@ -242,7 +242,8 @@ function contentQuery(query: string) {
 export const invalidQueryMessage =
   "Type a topic in words — like “sleep and memory”.";
 export function matchesQuery(p: Paper, query: string) {
-  const phrase = normalized(contentQuery(query));
+  const content = contentQuery(query);
+  const phrase = normalized(content);
   if (!phrase) return false;
   const terms = [...new Set(phrase.split(" "))];
   const contains = (text: string, term: string) =>
@@ -250,10 +251,10 @@ export function matchesQuery(p: Paper, query: string) {
       ? text.includes(term)
       : (" " + text + " ").includes(" " + term + " ");
   const texts = [p.title, p.abstract].map(normalized);
-  if (phrase.split(" ").length <= 3)
-    return texts.some((text) => contains(text, phrase));
+  if (texts.some((text) => contains(text, normalized(query)))) return true;
+  if (content === query) return false;
   return terms.filter((term) => contains(texts.join(" "), term)).length >=
-    Math.ceil(terms.length * 0.6);
+    (terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.6));
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -458,7 +459,7 @@ export async function discover(
   key?: string,
 ): Promise<Dataset> {
   if (!words(query)) throw new Error(invalidQueryMessage);
-  query = contentQuery(query);
+  const searchQuery = contentQuery(query);
   progress("Searching OpenAlex…");
   try {
     const select =
@@ -466,7 +467,7 @@ export async function discover(
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({
-        search: query,
+        search: searchQuery,
         select,
         mailto,
         ...(key ? { api_key: key } : {}),
@@ -508,7 +509,7 @@ export async function discover(
     const base =
       "https://api.crossref.org/works?" +
       new URLSearchParams({
-        query,
+        query: searchQuery,
         rows: "100",
         select:
           "DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score",

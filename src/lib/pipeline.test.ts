@@ -75,6 +75,29 @@ test("short topic phrases retain meaningful stop words", () => {
   assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "sleep and memory?"));
   assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "how sleep and memory"));
 });
+test("rewritten questions retain verbatim matches and require all short content terms", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const [query, title] of [
+      ["a theory of human motivation", "A theory of human motivation"],
+      ["sleep and memory?", "Sleep and memory"],
+    ]) {
+      assert.ok(matchesQuery({ ...p, title }, query));
+      globalThis.fetch = (async () => Response.json({
+        meta: { count: 1 },
+        results: [{ id: "test", title, publication_year: 2020 }],
+      })) as typeof fetch;
+      assert.equal((await discover(query)).papers.length, 1);
+    }
+    assert.ok(matchesQuery({ ...p, title: "Motivation", abstract: "A theory" }, "a theory of human motivation"));
+    assert.ok(!matchesQuery({ ...p, title: "Sleep alone" }, "sleep and memory?"));
+    assert.ok(!matchesQuery({ ...p, title: "Unrelated work" }, "sleep and memory?"));
+    assert.ok(!matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
+    assert.ok(!matchesQuery({ ...p, title: "Quantum studies of error correction" }, "quantum error correction theory"));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("featured topics retain their previous exact-phrase matches", () => {
   const previous = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).map((w) => w.length > 4 ? w.replace(/s$/, "") : w).join(" ");
   for (const topic of examples) {
