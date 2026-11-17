@@ -477,32 +477,88 @@ export function finish(
   });
   return { papers, source, total, fetchedAt: new Date().toISOString() };
 }
-async function json(url: string, retry = true): Promise<any> {
-  const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  if (
-    r.status === 429 &&
-    retry &&
-    url.startsWith("https://api.crossref.org/")
-  ) {
-    const delay = Math.min(
-      10,
-      Math.max(2, Number(r.headers.get("retry-after")) || 2),
-    );
-    await new Promise((resolve) => setTimeout(resolve, delay * 1000));
-    return json(url, false);
+export class RateLimitError extends Error {}
+const cooldownKey = "pt-openalex-retry-at";
+function pause(ms: number, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+async function json(
+  url: string,
+  progress: (s: string) => void,
+  signal?: AbortSignal,
+): Promise<any> {
+  const crossref = url.startsWith("https://api.crossref.org/");
+  for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
+    let response: Response | undefined;
+    try {
+      response = await fetch(url, {
+        signal: AbortSignal.any([
+          AbortSignal.timeout(20000),
+          ...(signal ? [signal] : []),
+        ]),
+      });
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!crossref || !(error instanceof TypeError)) throw error;
+    }
+    signal?.throwIfAborted();
+    if (response?.status !== 429 && response) {
+      if (!response.ok) throw new Error(`Index returned ${response.status}`);
+      return response.json();
+    }
+    if (!crossref) {
+      try { sessionStorage.setItem(cooldownKey, String(Date.now() + 600000)); } catch {}
+      throw new RateLimitError("Index returned 429");
+    }
+    if (attempt >= 2) throw new RateLimitError("Index is busy");
+    const retryAfter = response?.headers.get("retry-after");
+    const seconds = retryAfter
+      ? Number.isFinite(Number(retryAfter))
+        ? Number(retryAfter)
+        : (Date.parse(retryAfter) - Date.now()) / 1000
+      : 0;
+    const delay = Math.max(attempt === 0 ? 2 : 5, seconds || 0);
+    progress(`The index is busy · Retrying in ${Math.ceil(delay)}s…`);
+    await pause(delay * 1000, signal);
   }
-  if (!r.ok) throw new Error(`Index returned ${r.status}`);
-  return r.json();
 }
 export async function discover(
   query: string,
   progress: (s: string, partial?: Dataset) => void = () => {},
   key?: string,
+  signal?: AbortSignal,
 ): Promise<Dataset> {
   if (!words(query)) throw new Error(invalidQueryMessage);
   const searchQuery = contentQuery(query);
+  let rateLimited = false;
+  const request = async (url: string) => {
+    try {
+      return await json(url, progress, signal);
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (error instanceof RateLimitError) rateLimited = true;
+      if (rateLimited) throw new RateLimitError("Index is busy");
+      throw error;
+    }
+  };
+  signal?.throwIfAborted();
   progress("Searching OpenAlex…");
   try {
+    let coolingDown = false;
+    try { coolingDown = Number(sessionStorage.getItem(cooldownKey)) > Date.now(); } catch {}
+    if (coolingDown) throw new RateLimitError("OpenAlex is busy");
     const select =
       "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
     const params = (extra: Record<string, string>) =>
@@ -526,7 +582,8 @@ export async function discover(
           filter: "from_publication_date:" + cutoff(),
         },
       ].map(async (extra) => {
-        const d = await json(params(extra as Record<string, string>));
+        const d = await request(params(extra as Record<string, string>));
+        signal?.throwIfAborted();
         total = Math.max(total, d.meta?.count || 0);
         accumulated = accumulated.concat(d.results.map(oa));
         const partial = finish(accumulated, "OpenAlex", query, total);
@@ -537,6 +594,7 @@ export async function discover(
         return d;
       }),
     );
+    signal?.throwIfAborted();
     if (all.every((r) => r.status === "rejected"))
       throw new Error("OpenAlex unavailable");
     const result = finish(accumulated, "OpenAlex", query, total);
@@ -545,7 +603,9 @@ export async function discover(
       result,
     );
     return result;
-  } catch {
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof RateLimitError) rateLimited = true;
     progress("OpenAlex unavailable · Searching the backup index…");
     const base =
       "https://api.crossref.org/works?" +
@@ -556,14 +616,14 @@ export async function discover(
           "DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score",
         mailto,
       });
-    const d = await json(base);
+    const d = await request(base);
     let works = d.message.items.map(cross) as Paper[];
     progress(
       `Found ${works.length} records · Checking influential papers…`,
       finish(works, "Crossref", query, d.message["total-results"]),
     );
     try {
-      const cited = await json(
+      const cited = await request(
         base + "&sort=is-referenced-by-count&order=desc",
       );
       const terms = normalized(searchQuery).split(" ").filter(Boolean);
@@ -573,11 +633,11 @@ export async function discover(
           Math.max(1, Math.ceil(terms.length * 0.6)),
       );
       works = works.concat(extra);
-    } catch {}
+    } catch { signal?.throwIfAborted(); }
     try {
-      const proceedings = await json(base + "&filter=type:proceedings-article");
+      const proceedings = await request(base + "&filter=type:proceedings-article");
       works = works.concat(proceedings.message.items.map(cross));
-    } catch {}
+    } catch { signal?.throwIfAborted(); }
     const result = finish(works, "Crossref", query, d.message["total-results"]);
     progress(`Found ${result.papers.length} papers · Mapping themes…`, result);
     return result;
