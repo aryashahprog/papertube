@@ -41,7 +41,8 @@ const figures: Record<string, PaperFigure> = {
     alt: "The original RAG architecture connecting a query encoder, document index, and generator.",
   },
   "high resolution image synthesis with latent diffusion models": {
-    src: "https://arxiv.org/html/2112.10752v2/final_figure.svg",
+    // arXiv's SVG has a full-page canvas; the bundled copy crops blank margins only.
+    src: "figures/latent-diffusion.svg",
     source: "https://arxiv.org/html/2112.10752v2#S3.F3",
     label: "Figure 3 · Rombach et al.",
     alt: "The original latent diffusion architecture, showing image compression, denoising in latent space, and conditioning.",

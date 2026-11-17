@@ -62,7 +62,7 @@ export function PaperVisual({ paper, compact = false, sourceLink = false }: {
   const sketch = paperSketch(paper);
   const caption = showFigure ? figure.label : sketch.kind === "concepts" ? "Title map · not findings" : "Concept sketch · not findings";
   return <span className={`paper-visual${compact ? " paper-visual-compact" : ""}${showFigure ? " paper-visual-figure" : ""}`}>
-    {showFigure ? <img src={figure.src} alt={figure.alt} loading="lazy" decoding="async"
+    {showFigure ? <img src={figure.src.startsWith("https://") ? figure.src : import.meta.env.BASE_URL + figure.src} alt={figure.alt} loading="lazy" decoding="async"
       referrerPolicy="no-referrer" onError={() => setFailedSrc(figure.src)} /> : <Sketch paper={paper} />}
     <span className="visual-caption">
       {showFigure && sourceLink ? <a href={figure.source} target="_blank" rel="noreferrer">{caption} ↗</a> : caption}
