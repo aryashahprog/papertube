@@ -262,8 +262,7 @@ export function matchesQuery(p: Paper, query: string) {
     : terms.length;
   const topics = normalized((p.topics || []).join(" "));
   return terms.filter((term) => contains(texts.join(" "), term)).length >= required ||
-    (terms.some((term) => contains(texts[0], term)) &&
-      terms.every((term) => contains(topics, term)));
+    terms.every((term) => contains(topics, term));
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -349,12 +348,19 @@ export function startHere(papers: Paper[], query?: string) {
     });
   const strongest = Math.max(0, ...scores.values());
   const core = new Set([...scores].filter(([, score]) => score === strongest).map(([name]) => name));
+  const substantial = new Set([...scores].filter(([, score]) => score >= strongest / 2).map(([name]) => name));
+  const citations = papers.map((p) => p.citations).sort((a, b) => a - b);
+  const influential = Math.max(1000, citations[Math.floor(citations.length * 0.99)] || 0);
+  const foundational = (p: Paper) => terms.length > 0 &&
+    p.citations >= influential &&
+    (p.topics || []).some((name) => substantial.has(name)) &&
+    terms.every((term) => contains(normalized((p.topics || []).join(" ")), term));
   const eligible = papers.filter((p) =>
     p.coherent !== false &&
-    (query === undefined || terms.some((t) => contains(normalized(p.title), t))),
+    (query === undefined || terms.some((t) => contains(normalized(p.title), t)) || foundational(p)),
   );
   const qualified = eligible.filter((p) => query === undefined ||
-    core.has(topic(p)) || terms.every((t) => contains(normalized(p.title), t)));
+    core.has(topic(p)) || foundational(p) || terms.every((t) => contains(normalized(p.title), t)));
   return [...qualified, ...eligible.filter((p) => !qualified.includes(p))].slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
