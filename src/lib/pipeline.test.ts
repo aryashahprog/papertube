@@ -1,0 +1,7 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { reconstruct, takeaway, finish, discover, type Paper } from './pipeline'
+test('abstract reconstruction and finding extraction',()=>{assert.equal(reconstruct({We:[0],show:[1],results:[2]}),'We show results');assert.equal(reconstruct(null),'');assert.match(takeaway('This is a broad introductory background sentence about the field. We demonstrate a significant improvement over established baselines in all experiments.'),/^We demonstrate/);assert.equal(takeaway(''),'')})
+const p:Paper={id:'a',doi:'10/a',title:'A finding',year:2020,citations:10,relevance:2,authors:[],venue:'',url:'',pdf:'',abstract:'',takeaway:'',theme:'Topic',references:[],rank:0}
+test('deduplication, junk filtering, empty results, ranking',()=>{const d=finish([p,{...p,id:'b'},{...p,id:'c',doi:'10/c',title:'Retracted research'}],'OpenAlex','test',3);assert.equal(d.papers.length,1);assert.ok(d.papers[0].rank>0);assert.deepEqual(finish([],'Crossref','test',0).papers,[])})
+test('OpenAlex errors fall back to Crossref, empty is valid, dual failure rejects',async()=>{const original=globalThis.fetch;try{globalThis.fetch=(async(url)=>String(url).includes('openalex')?new Response('',{status:429}):Response.json({message:{items:[],'total-results':0}})) as typeof fetch;assert.equal((await discover('test')).source,'Crossref');globalThis.fetch=(async()=>new Response('',{status:503})) as typeof fetch;await assert.rejects(()=>discover('test'))}finally{globalThis.fetch=original}})
