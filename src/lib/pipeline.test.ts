@@ -19,7 +19,15 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+import { comparisonDate, unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+test("coarse publication dates use period end for since, not the fully specified today cap", () => {
+  assert.equal(comparisonDate("2024-02"), "2024-02-29");
+  assert.equal(comparisonDate("2025"), "2025-12-31");
+  const paper = { id: "a", title: "Title", date: "2025-01", year: 2025, url: "" };
+  assert.deepEqual(cleanRecentPapers([paper], "2025-01-20", "2025-01-25"), [paper]);
+  assert.deepEqual(cleanRecentPapers([{ ...paper, date: "2025" }], "2025-01-20", "2025-01-25"), [{ ...paper, date: "2025" }]);
+  assert.deepEqual(cleanRecentPapers([{ ...paper, date: "2025-01-26" }], "2025-01-20", "2025-01-25"), []);
+});
 test("badges retain the API total beyond eight items minus seen overlap", () => {
   const follow = { q: "test", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-01", seenIds: ["seen"], seenPapers: [{ id: "seen", date: "2025-01-02" }] };
   assert.equal(unreadTotal(674, [{ id: "seen", title: "Seen", date: "2025-01-02", year: 2025, url: "" }], follow), 673);

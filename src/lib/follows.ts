@@ -48,11 +48,19 @@ export function relativeDate(date: string): string {
   return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
 export interface RecentPaper { id: string; title: string; year: number; url: string; date?: string }
+export function comparisonDate(date: string): string {
+  if (/^\d{4}$/.test(date)) return date + "-12-31";
+  if (/^\d{4}-\d{2}$/.test(date)) {
+    const [year, month] = date.split("-").map(Number);
+    return `${date}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}`;
+  }
+  return date;
+}
 export function cleanRecentPapers(papers: RecentPaper[], from: string, until: string): RecentPaper[] {
   const ids = new Set<string>(), titles = new Set<string>();
   return papers.filter((p) => {
-    const date = p.date?.length === 7 ? p.date + "-01" : p.date;
-    if (typeof p.title !== "string" || !p.title.trim() || !date || date < from || date > until) return false;
+    const date = p.date && comparisonDate(p.date);
+    if (typeof p.title !== "string" || !p.title.trim() || !date || date < from || (p.date?.length === 10 && date > until)) return false;
     const title = p.title.trim().toLowerCase().replace(/\s+/g, " ");
     if (ids.has(p.id) || titles.has(title)) return false;
     ids.add(p.id); titles.add(title);
@@ -66,7 +74,7 @@ export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPa
 export function unreadTotal(total: number, papers: RecentPaper[], follow: Follow): number {
   const overlap = new Set(papers.filter((p) => follow.seenIds.includes(p.id)).map((p) => p.id));
   for (const p of follow.seenPapers || []) {
-    if (p.date >= follow.lastSeenAt.slice(0, 10)) overlap.add(p.id);
+    if (comparisonDate(p.date) >= follow.lastSeenAt.slice(0, 10)) overlap.add(p.id);
   }
   return Math.max(0, total - overlap.size);
 }
@@ -122,7 +130,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     return { count, searchUrl, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
       id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
-      date: w.published?.["date-parts"]?.[0]?.length >= 2 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
+      date: w.published?.["date-parts"]?.[0]?.length >= 1 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
     })), date, today) : [] };
   }
