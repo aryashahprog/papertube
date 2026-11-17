@@ -409,7 +409,9 @@ function App() {
           {error && (
             <div role="alert" className="empty">
               {error}
-              <button onClick={() => location.reload()}>Try again ↗</button>
+              {error !== invalidQueryMessage && (
+                <button onClick={() => location.reload()}>Try again ↗</button>
+              )}
             </div>
           )}
           {data && !!papers.length && (
