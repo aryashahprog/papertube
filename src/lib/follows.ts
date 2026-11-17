@@ -41,15 +41,21 @@ export function writeFollows(storage: Storage, follows: Follow[]): boolean {
     return true;
   } catch { return false; }
 }
-export function newPaperIds(ids: string[], seenIds: string[]): string[] {
-  const seen = new Set(seenIds);
-  return [...new Set(ids)].filter((id) => !seen.has(id));
-}
 export function relativeDate(date: string): string {
   const days = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 86400000));
   return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
-export interface RecentPaper { id: string; title: string; year: number; url: string }
+export interface RecentPaper { id: string; title: string; year: number; url: string; date?: string }
+export function cleanRecentPapers(papers: RecentPaper[], from: string, until: string): RecentPaper[] {
+  const ids = new Set<string>(), titles = new Set<string>();
+  return papers.filter((p) => {
+    if (typeof p.title !== "string" || !p.title.trim() || !p.date || p.date < from || p.date > until) return false;
+    const title = p.title.trim().toLowerCase().replace(/\s+/g, " ");
+    if (ids.has(p.id) || titles.has(title)) return false;
+    ids.add(p.id); titles.add(title);
+    return true;
+  });
+}
 export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPaper[] {
   const seen = new Set(seenIds);
   return papers.filter((p) => !seen.has(p.id));
@@ -70,6 +76,7 @@ export function markTopicVisited(previous: Follow, updated: Follow) {
 }
 async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[] }> {
   const date = follow.lastSeenAt.slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
   async function request(url: string) {
     const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
     if (!response.ok) throw new Error("Index unavailable");
@@ -81,29 +88,31 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
   try {
     if (items && source === "Crossref") throw new Error("Use counted source");
     const data = await request("https://api.openalex.org/works?" + new URLSearchParams({
-      ...params, search: follow.q, filter: `from_publication_date:${date}`, "per-page": items ? "8" : "1", sort: "cited_by_count:desc",
+      ...params, search: follow.q, filter: `from_publication_date:${date},to_publication_date:${today}`, "per-page": items ? "8" : "1", sort: "cited_by_count:desc",
     }));
     const count = data.meta?.count;
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
-    return { count, papers: items ? data.results.map((w: any) => ({
+    return { count, papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
       id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
+      date: w.publication_date,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
-    })) : [] };
+    })), date, today) : [] };
   } catch {
     const data = await request("https://api.crossref.org/works?" + new URLSearchParams({
-      ...params, query: follow.q, filter: `from-pub-date:${date}`, rows: items ? "8" : "0", sort: "is-referenced-by-count", order: "desc",
+      ...params, query: follow.q, filter: `from-pub-date:${date},until-pub-date:${today}`, rows: items ? "8" : "0", sort: "is-referenced-by-count", order: "desc",
     }));
     const count = data.message?.["total-results"];
     if (!Number.isFinite(count)) throw new Error("Invalid count");
     if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
-    return { count, papers: items ? data.message.items.map((w: any) => ({
-      id: "https://doi.org/" + w.DOI?.toLowerCase(), title: w.title?.[0] || w.DOI,
+    return { count, papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
+      id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
+      date: w.published?.["date-parts"]?.[0]?.length === 3 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
-    })) : [] };
+    })), date, today) : [] };
   }
 }
 export async function countNewPapers(follow: Follow): Promise<number> {

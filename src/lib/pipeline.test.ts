@@ -19,13 +19,17 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { unreadPapers, readCountCache, safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+import { cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+test("recent items reject missing titles, duplicates and out-of-window dates", () => {
+  const paper = { id: "doi:1", title: "Real title", date: "2025-01-02", year: 2025, url: "https://example.org" };
+  assert.deepEqual(cleanRecentPapers([paper, { ...paper, id: "other" }, { ...paper, title: "" }, { ...paper, date: "2099-01-01" }, { ...paper, date: "2024-01-01" }], "2025-01-01", "2025-01-31"), [paper]);
+});
 test("same-day publications already shown are excluded from badges and feeds", async () => {
   const papers = [{ id: "seen", title: "Old", year: 2025, url: "https://example.org" }, { id: "new", title: "New", year: 2025, url: "https://example.org" }];
   assert.deepEqual(unreadPapers(papers, ["seen"]), [papers[1]]);
   assert.deepEqual(unreadPapers([], []), []);
   const original = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 2 }, results: papers.map((p) => ({ id: p.id, title: p.title, publication_year: p.year })) }))) as typeof fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 2 }, results: papers.map((p) => ({ id: p.id, title: p.title, publication_year: p.year, publication_date: "2025-01-02" })) }))) as typeof fetch;
   try {
     const follow = { q: "test", label: "test", lastSeenAt: "2025-01-01", followedAt: "2025-01-01", seenIds: ["seen"] };
     assert.equal(await countNewPapers(follow), 1);
@@ -61,15 +65,15 @@ test("recent works share count filters, map links, handle empty and reject error
     const urls: URL[] = [];
     globalThis.fetch = (async (url) => {
       urls.push(new URL(String(url)));
-      return new Response(JSON.stringify({ meta: { count: 1 }, results: [{ id: "oa:1", title: "Finding", publication_year: 2025, primary_location: { landing_page_url: "https://example.org/paper" } }] }));
+      return new Response(JSON.stringify({ meta: { count: 1 }, results: [{ id: "oa:1", title: "Finding", publication_year: 2025, publication_date: "2025-01-02", primary_location: { landing_page_url: "https://example.org/paper" } }] }));
     }) as typeof fetch;
     assert.equal(await countNewPapers(follow), 1);
-    assert.deepEqual(await recentPapers(follow), [{ id: "oa:1", title: "Finding", year: 2025, url: "https://example.org/paper" }]);
+    assert.deepEqual(await recentPapers(follow), [{ id: "oa:1", title: "Finding", year: 2025, date: "2025-01-02", url: "https://example.org/paper" }]);
     for (const key of ["search", "filter", "sort"]) assert.equal(urls[0].searchParams.get(key), urls[1].searchParams.get(key));
     assert.equal(urls[1].searchParams.get("per-page"), "8");
     globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 0 }, results: [] }))) as typeof fetch;
     assert.deepEqual(await recentPapers(follow), []);
-    globalThis.fetch = (async (url) => String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 1, items: [{ DOI: "10/example", title: ["Fallback"], published: { "date-parts": [[2025]] } }] } }))) as typeof fetch;
+    globalThis.fetch = (async (url) => String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 1, items: [{ DOI: "10/example", title: ["Fallback"], published: { "date-parts": [[2025, 1, 2]] } }] } }))) as typeof fetch;
     assert.equal((await recentPapers(follow))[0].url, "https://doi.org/10/example");
     globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
     await assert.rejects(recentPapers(follow));
@@ -82,17 +86,17 @@ test("cheap counts use OpenAlex, fall back to Crossref, and reject dual failure"
     const urls: string[] = [];
     globalThis.fetch = (async (url) => {
       urls.push(String(url));
-      return new Response(JSON.stringify({ meta: { count: 0 } }));
+      return new Response(JSON.stringify({ meta: { count: 0 }, results: [] }));
     }) as typeof fetch;
     assert.equal(await countNewPapers(follow), 0);
-    assert.match(urls[0], /per-page=1/);
+    assert.match(urls[0], /per-page=8/);
     assert.match(urls[0], /from_publication_date%3A2025-01-02/);
     globalThis.fetch = (async (url) => {
       urls.push(String(url));
-      return String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 7 } }));
+      return String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 7, items: [] } }));
     }) as typeof fetch;
-    assert.equal(await countNewPapers(follow), 7);
-    assert.match(urls.at(-1)!, /rows=0/);
+    assert.equal(await countNewPapers(follow), 0);
+    assert.match(urls.at(-1)!, /rows=8/);
     assert.match(urls.at(-1)!, /from-pub-date%3A2025-01-02/);
     globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
     await assert.rejects(countNewPapers(follow));
@@ -114,12 +118,6 @@ test("follow storage tolerates empty, malformed and unavailable storage", () => 
   const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); } };
   assert.deepEqual(readFollows(blocked), []);
   assert.equal(writeFollows(blocked, [follow]), false);
-});
-test("new ids exclude previously seen papers and duplicates", () => {
-  assert.deepEqual(newPaperIds(["a", "b", "b"], ["a"]), ["b"]);
-  assert.deepEqual(newPaperIds([], ["a"]), []);
-  assert.deepEqual(newPaperIds(["a"], []), ["a"]);
-  assert.deepEqual(newPaperIds(["a"], ["a"]), []);
 });
 test("query limits preserve code points and remove lone input surrogates", () => {
   assert.equal(clampQuery(""), "");

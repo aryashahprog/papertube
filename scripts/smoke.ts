@@ -37,7 +37,7 @@ await page.route("https://api.openalex.org/**", (r) => {
   if (failRecent) return r.fulfill({ status: 503, body: "unavailable" });
   return r.fulfill({ json: { meta: { count: 3 }, results: [1, 2, 3].map((n) => ({
     id: `https://openalex.org/recent-${n}`, title: `Recent CRISPR finding ${n}`,
-    publication_year: 2026, doi: `https://doi.org/10.1234/recent-${n}`,
+    publication_year: new Date().getFullYear(), publication_date: new Date().toISOString().slice(0, 10), doi: `https://doi.org/10.1234/recent-${n}`,
   })) } });
 });
 await page.goto(base);
@@ -73,15 +73,17 @@ await page.screenshot({ path: out + "/results-followed-new.png" });
 await page.setViewportSize({ width: 1280, height: 1000 });
 await page.goto(base);
 await page.getByText("Up to date", { exact: true }).waitFor();
-assert.equal(countRequests, 3);
+assert.equal(countRequests, 4);
 await page.goto(base + "?q=CRISPR");
 await page.reload();
 await page.locator(".start-card").first().waitFor();
+await page.waitForFunction(() => !document.querySelector(".loading"));
 assert.equal(await page.locator(".new-papers").count(), 0);
 await page.getByRole("button", { name: "Following ✓", exact: true }).click();
 await page.getByRole("button", { name: "Follow topic", exact: true }).waitFor();
 assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("pt-follows")!).length), 0);
-console.log("PASS: follow, cached badge equals recent feed, matching query/date, failed fetch preserves visit, visit clears count, ranked pills and unfollow");
+assert.equal(await page.locator(".new-pill").count(), 0);
+console.log("PASS: follow, badge equals unseen live feed, matching date bounds, failed fetch preserves visit, same-day seen exclusion and unfollow");
 await page.screenshot({ path: out + "/results.png", fullPage: true });
 await page.locator('svg g[role="button"]').last().hover();
 await page.getByRole("tooltip").waitFor();

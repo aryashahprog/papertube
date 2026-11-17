@@ -18,7 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
-import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, newPaperIds, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
+import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -37,7 +37,6 @@ const compact = (n: number) =>
 function App() {
   const [follows, setFollows] = useState<Follow[]>(() => readFollows(followsStorage));
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [newIds, setNewIds] = useState<string[]>([]);
   const [recent, setRecent] = useState<RecentPaper[]>([]);
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
@@ -97,7 +96,6 @@ function App() {
   }, []);
   useEffect(() => {
     setInput(q);
-    setNewIds([]);
     setRecent([]);
     setSelected(null);
     if (!q) {
@@ -152,8 +150,6 @@ function App() {
           const saved = readFollows(followsStorage);
           const previous = saved.find((f) => f.q === normalizeQuery(q));
           if (previous) {
-            const ids = result.papers.map((p) => p.id);
-            setNewIds(newPaperIds(ids, previous.seenIds));
             try {
               const items = await recentPapers(previous);
               if (!active) return;
@@ -417,7 +413,7 @@ function App() {
                   q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
                   seenIds: [],
                 }];
-                if (writeFollows(followsStorage, updated)) { setFollows(updated); setNewIds([]); }
+                if (writeFollows(followsStorage, updated)) setFollows(updated);
               }}>{followed ? "Following ✓" : "Follow topic"}</button>
               <div className="toggle" aria-label="Paper selection">
                 <button
@@ -478,7 +474,7 @@ function App() {
           {followed && !!recent.length && <section className="new-papers" aria-label="New since your last visit">
             <h2>New since your last visit</h2>
             <div className="new-feed">{recent.map((p) =>
-              <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.year} ↗</small></a>)}</div>
+              <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.date || p.year} ↗</small></a>)}</div>
           </section>}
           {data?.source === "Crossref" && (
             <p className="backup">
@@ -544,7 +540,6 @@ function App() {
                         onClick={() => setSelected(p)}
                       >
                         {p.title}
-                        {newIds.includes(p.id) && <small className="new-pill">New</small>}
                       </button>
                       <div className="byline">
                         {p.authors[0] || "Author not listed"}

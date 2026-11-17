@@ -1281,5 +1281,4 @@ body:has(.tv) {
 .new-feed small { color: var(--muted); flex-shrink: 0; }
 @media (max-width: 600px) { .new-feed a { flex-direction: column; gap: 4px; } }
 .follow-hint, .new-papers p { color: #596353; font-size: 13px; }
-.new-pill { display: inline-block; margin-left: 8px; padding: 3px 7px; border-radius: 8px; background: #beff7a; color: #182016; font-size: 11px; }
 .actions { flex-wrap: wrap; }
