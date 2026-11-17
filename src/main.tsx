@@ -124,7 +124,7 @@ function App() {
           } catch {}
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
-        result = finish(result.papers, result.source, q, result.total);
+        result = { ...finish(result.papers, result.source, q, result.total), fetchedAt: result.fetchedAt };
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
         if (result.source === "Crossref") {
           result = { ...result, papers: result.papers.map(p => ({ ...p })) };
