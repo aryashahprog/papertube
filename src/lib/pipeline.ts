@@ -380,7 +380,7 @@ export function finish(
         unique.set(k, { ...p, relevance: Math.max(p.relevance, existing?.relevance ?? -1) });
       else existing.relevance = Math.max(existing.relevance, p.relevance);
     });
-  const publications = new Map<string, Paper>();
+  const publications: { paper: Paper; titles: Set<string> }[] = [];
   const compactTitle = (s: string) =>
     clean(s).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
   for (const p of unique.values()) {
@@ -388,20 +388,25 @@ export function finish(
     const surname = author.includes(",")
       ? author.split(",")[0]
       : author.split(/\s+/).at(-1) || "";
-    const key = surname
-      ? compactTitle(p.title) + ":" + compactTitle(surname)
-      : p.id;
-    const existing = publications.get(key);
-    const preferred = !existing ||
-      Number(!!p.doi) > Number(!!existing.doi) ||
-      (!!p.doi === !!existing.doi && p.citations > existing.citations);
-    if (preferred) publications.set(key, {
-      ...p,
-      relevance: Math.max(p.relevance, existing?.relevance ?? -1),
-    });
-    else existing.relevance = Math.max(existing.relevance, p.relevance);
+    const title = compactTitle(p.title);
+    const keys = [title + ":year:" + p.year];
+    if (surname) keys.push(title + ":author:" + compactTitle(surname));
+    const matches = publications.filter((group) => keys.some((key) => group.titles.has(key)));
+    let candidate = p;
+    const titles = new Set(keys);
+    for (const group of matches) {
+      for (const key of group.titles) titles.add(key);
+      const existing = group.paper;
+      const relevance = Math.max(candidate.relevance, existing.relevance);
+      if (Number(!!existing.doi) > Number(!!candidate.doi) ||
+          (!!existing.doi === !!candidate.doi && existing.citations > candidate.citations))
+        candidate = existing;
+      candidate = { ...candidate, relevance };
+      publications.splice(publications.indexOf(group), 1);
+    }
+    publications.push({ paper: { ...candidate }, titles });
   }
-  const papers = [...publications.values()];
+  const papers = publications.map((group) => group.paper);
   const scores = papers
     .map((p) => p.relevance)
     .filter((r) => r >= 0)

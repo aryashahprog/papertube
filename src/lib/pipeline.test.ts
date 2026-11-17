@@ -69,14 +69,28 @@ test("publication variants deduplicate by title and first-author surname", () =>
     assert.equal(d.papers[0].id, "newer");
   }
   assert.equal(finish([original, published], "OpenAlex", "finding", 2).papers[0].id, "published");
-  assert.equal(finish([original, { ...published, authors: ["Alex Smith"] }], "OpenAlex", "finding", 2).papers.length, 2);
-  assert.equal(finish([{ ...original, authors: [] }, { ...published, authors: [] }], "OpenAlex", "finding", 2).papers.length, 2);
+  assert.equal(finish([original, { ...published, authors: ["Alex Smith"], year: published.year + 1 }], "OpenAlex", "finding", 2).papers.length, 2);
+  assert.equal(finish([{ ...original, authors: [] }, { ...published, authors: [], year: published.year + 1 }], "OpenAlex", "finding", 2).papers.length, 2);
   assert.equal(finish([{ ...p, citations: 1 }, { ...p, citations: 20 }], "OpenAlex", "finding", 2).papers[0].citations, 20);
+});
+test("matching title and year deduplicate differing or missing authors", () => {
+  const original = { ...p, doi: "", title: "AliGraph: A finding", authors: ["Rong Zhu"], citations: 100 };
+  const published = { ...original, id: "published", doi: "10/published", title: "aligraph a FINDING.", authors: ["Hongxia Yang"], citations: 90 };
+  for (const input of [[original, published], [published, original]]) {
+    const papers = finish(input, "OpenAlex", "finding", 2).papers;
+    assert.equal(papers.length, 1);
+    assert.equal(papers[0].id, "published");
+  }
+  assert.equal(finish([{ ...original, authors: [] }, { ...published, authors: [] }], "OpenAlex", "finding", 2).papers.length, 1);
+  const later = { ...published, id: "later", doi: "10/later", year: published.year + 1, citations: 120 };
+  for (const input of [[original, later, published], [published, later, original]]) {
+    assert.deepEqual(finish(input, "OpenAlex", "finding", 3).papers.map((paper) => paper.id), ["later"]);
+  }
 });
 test("non-paper work types and retracted records are excluded without hiding research formats", () => {
   const excluded = ["dataset", "paratext", "peer-review", "erratum", "grant", "proposal", "other", "retraction", "software", "supplementary-materials", "study-registration", "conference-abstract"];
   const allowed = ["article", "review", "preprint", "book", "book-chapter", "report", "dissertation", "conference-paper", "data-paper", "software-paper", undefined];
-  const make = (workType: string | undefined): Paper => ({ ...p, id: String(workType), doi: `10/${workType}`, workType });
+  const make = (workType: string | undefined): Paper => ({ ...p, id: String(workType), doi: `10/${workType}`, title: `A finding ${workType}`, workType });
   assert.deepEqual(finish(excluded.map(make), "OpenAlex", "finding", excluded.length).papers, []);
   assert.equal(finish(allowed.map(make), "OpenAlex", "finding", allowed.length).papers.length, allowed.length);
   assert.deepEqual(finish([{ ...p, retracted: true }], "OpenAlex", "finding", 1).papers, []);
