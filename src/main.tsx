@@ -13,6 +13,7 @@ import {
 } from "./lib/pipeline";
 import "./style.css";
 import { slideDuration } from "./lib/tv";
+import { tourPosition } from "./lib/tv-position";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -44,28 +45,37 @@ function App() {
     [hover, setHover] = useState<Paper | null>(null),
     [share, setShare] = useState(false),
     [copied, setCopied] = useState(false),
-    [slide, setSlide] = useState(0),
+    [slide, setSlide] = useState(() => tourPosition(params.get("slide"), Number.MAX_SAFE_INTEGER)),
     [paused, setPaused] = useState(false);
   const [finished, setFinished] = useState(false);
   const [slideRun, setSlideRun] = useState(0);
   const remaining = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const playRef = useRef<HTMLButtonElement>(null);
+  const selection = useRef(`${q}\n${hot}`);
   function navigate(next: Record<string, string | undefined>) {
     const p = new URLSearchParams(location.search);
     Object.entries(next).forEach(([k, v]) => (v ? p.set(k, v) : p.delete(k)));
+    if (!p.has("play")) p.delete("slide");
     history.pushState({}, "", location.pathname + (p.size ? "?" + p : ""));
     setParams(p);
   }
   useEffect(() => {
-    const fn = () => setParams(new URLSearchParams(location.search));
+    const fn = () => {
+      const p = new URLSearchParams(location.search);
+      if (p.get("play") === "1") {
+        goToSlide(tourPosition(p.get("slide"), Number.MAX_SAFE_INTEGER));
+        setPaused(false);
+      }
+      setParams(p);
+    };
     window.addEventListener("popstate", fn);
     return () => window.removeEventListener("popstate", fn);
   }, []);
   useEffect(() => {
     setInput(q);
     setSelected(null);
-    setSlide(0);
     if (!q) {
       setData(null);
       return;
@@ -128,6 +138,13 @@ function App() {
       active = false;
     };
   }, [q]);
+  useEffect(() => {
+    const next = `${q}\n${hot}`;
+    if (selection.current !== next) {
+      selection.current = next;
+      goToSlide(0);
+    }
+  }, [q, hot]);
   const papers = (data?.papers || []).filter(
     (p) => !hot || p.year >= Number(cutoff().slice(0, 4)),
   );
@@ -153,13 +170,21 @@ function App() {
     remaining.current = duration;
   }, [current?.id, slideRun, playing, duration]);
   useEffect(() => {
+    if (!playing || !data || !tour.length) return;
+    const index = Math.min(slide, tour.length - 1);
+    if (index !== slide) goToSlide(index);
+    const p = new URLSearchParams(location.search);
+    p.set("slide", String(index + 1));
+    history.replaceState({}, "", location.pathname + "?" + p);
+  }, [playing, slide, tour.length, data]);
+  useEffect(() => {
     if (!playing || paused || !tour.length) return;
     const started = performance.now();
     const t = setTimeout(() => {
       if (slide >= tour.length - 1) {
         setFinished(true);
         setPaused(true);
-      } else setSlide((s) => s + 1);
+      } else goToSlide(slide + 1);
     }, remaining.current);
     return () => {
       clearTimeout(t);
@@ -209,7 +234,10 @@ function App() {
     if (!selected && !playing) return;
     const previous = document.activeElement as HTMLElement;
     closeRef.current?.focus();
-    return () => previous?.focus();
+    return () => {
+      if (previous?.isConnected && previous !== document.body) previous.focus();
+      else playRef.current?.focus();
+    };
   }, [selected, playing]);
   const search = (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,15 +364,18 @@ function App() {
                 </button>
               </div>
               <button
+                ref={playRef}
                 disabled={!tour.length}
                 className="play"
                 onClick={() => {
-                  goToSlide(0);
+                  goToSlide(finished ? 0 : slide);
                   setPaused(false);
                   navigate({ play: "1" });
                 }}
               >
-                ▶ Play
+                {slide > 0 && !finished
+                  ? `▶ Resume ${String(slide + 1).padStart(2, "0")}/${tour.length}`
+                  : "▶ Play"}
               </button>
               <div className="share-wrap">
                 <button onClick={() => setShare(!share)}>Share ↗</button>

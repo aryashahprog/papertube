@@ -784,17 +784,17 @@ g:focus .node {
   gap: 5px;
 }
 .tv-timeline button {
-  padding: 0;
-  height: 4px;
+  padding: 10px 0;
+  height: 24px;
   flex: 1;
   border: 0;
   border-radius: 1px;
-  background: #33432d;
+  background: linear-gradient(transparent 10px, #33432d 10px, #33432d 14px, transparent 14px);
   overflow: hidden;
 }
 .tv-timeline i {
   display: block;
-  height: 100%;
+  height: 4px;
   width: 0;
   background: #bedc90;
 }
