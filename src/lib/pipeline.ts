@@ -259,7 +259,7 @@ export function cutoff() {
   d.setMonth(d.getMonth() - 18);
   return d.toISOString().slice(0, 10);
 }
-function oa(w: Raw): Paper {
+export function oa(w: Raw): Paper {
   const abstract = validatedAbstract(w.title, reconstruct(w.abstract_inverted_index));
   return {
     id: w.id,
@@ -293,7 +293,7 @@ export function publicationYear(...years: number[]) {
   const valid = years.filter(y => Number.isInteger(y) && y > 0);
   return valid.length ? Math.min(new Date().getFullYear(), ...valid) : 0;
 }
-function cross(w: Raw): Paper {
+export function cross(w: Raw): Paper {
   const abstract = validatedAbstract(w.title?.[0], w.abstract);
   const doi = w.DOI || "";
   return {
