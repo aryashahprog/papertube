@@ -16,6 +16,7 @@ import {
   type Dataset,
   type Paper,
 } from "./lib/pipeline";
+import "@fontsource-variable/inter";
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
