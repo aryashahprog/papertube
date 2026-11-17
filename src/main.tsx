@@ -81,7 +81,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = sessionStorage.getItem("pt-v2:" + q.toLowerCase());
+          const cached = sessionStorage.getItem("pt-v3:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -100,7 +100,7 @@ function App() {
           setData(result);
           try {
             sessionStorage.setItem(
-              "pt-v2:" + q.toLowerCase(),
+              "pt-v3:" + q.toLowerCase(),
               JSON.stringify(result),
             );
           } catch {}
@@ -389,7 +389,7 @@ function App() {
                   <p>Five doors into the subject. Start with any one.</p>
                 </div>
                 <div className="start-grid">
-                  {startHere(papers).map((p, i) => (
+                  {startHere(papers, q).map((p, i) => (
                     <article className="start-card" key={p.id}>
                       <div className="card-top">
                         <span className="number">0{i + 1}</span>

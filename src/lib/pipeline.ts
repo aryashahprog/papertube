@@ -27,6 +27,7 @@ export interface Paper {
   abstract: string;
   takeaway: string;
   theme: string;
+  topics?: string[];
   references: string[];
   rank: number;
   coherent?: boolean;
@@ -158,7 +159,7 @@ function oa(w: Raw): Paper {
     title: clean(w.title),
     year: w.publication_year || 0,
     citations: w.cited_by_count || 0,
-    relevance: w.relevance_score || 0,
+    relevance: w.relevance_score ?? -1,
     authors: (w.authorships || [])
       .map((a: Raw) => a.author?.display_name)
       .filter(Boolean),
@@ -168,6 +169,9 @@ function oa(w: Raw): Paper {
     abstract,
     takeaway: takeaway(abstract),
     theme: w.primary_topic?.display_name || "Other",
+    topics: [...(w.topics || []), ...(w.concepts || [])]
+      .map((t: Raw) => clean(t.display_name))
+      .filter(Boolean),
     references: w.referenced_works || [],
     rank: 0,
   };
@@ -208,12 +212,22 @@ const normalized = (s: string) =>
     .split(/\s+/)
     .map((w) => (w.length > 4 ? w.replace(/s$/, "") : w))
     .join(" ");
-export function matchesQuery(p: Paper, query: string) {
-  const phrase = normalized(query);
-  if (!phrase) return false;
-  return [p.title, p.abstract].some((s) =>
-    (" " + normalized(s) + " ").includes(" " + phrase + " "),
+function queryTokens(query: string) {
+  const ignored = new Set(
+    "a an the and or of to in on for with by from using via as at is are this that into its it".split(" "),
   );
+  return normalized(query)
+    .split(" ")
+    .filter((t) => t && !ignored.has(t));
+}
+export function matchesQuery(p: Paper, query: string) {
+  const terms = queryTokens(query);
+  if (!terms.length) return false;
+  const words = new Set(normalized(p.title + " " + p.abstract).split(" "));
+  const title = new Set(normalized(p.title).split(" "));
+  const topics = new Set(normalized((p.topics || []).join(" ")).split(" "));
+  return terms.every((t) => words.has(t)) ||
+    (terms.some((t) => title.has(t)) && terms.every((t) => topics.has(t)));
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -285,8 +299,12 @@ export function coherence(papers: Paper[], query: string) {
     if (!p.coherent) p.theme = "Other";
   });
 }
-export function startHere(papers: Paper[]) {
-  return papers.filter((p) => p.coherent !== false).slice(0, 5);
+export function startHere(papers: Paper[], query?: string) {
+  const terms = query === undefined ? [] : queryTokens(query);
+  return papers.filter((p) =>
+    p.coherent !== false &&
+    (query === undefined || terms.some((t) => normalized(p.title).split(" ").includes(t))),
+  ).slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
   return papers
@@ -346,9 +364,22 @@ export function finish(
     )
     .forEach((p) => {
       const k = (p.doi || p.id).toLowerCase().replace("https://doi.org/", "");
-      if (!unique.has(k)) unique.set(k, { ...p });
+      const existing = unique.get(k);
+      if (!existing) unique.set(k, { ...p });
+      else existing.relevance = Math.max(existing.relevance, p.relevance);
     });
   const papers = [...unique.values()];
+  const scores = papers
+    .map((p) => p.relevance)
+    .filter((r) => r >= 0)
+    .sort((a, b) => a - b);
+  const middle = Math.floor(scores.length / 2);
+  const neutral = scores.length
+    ? (scores[middle] + scores[Math.floor((scores.length - 1) / 2)]) / 2
+    : 0;
+  papers.forEach((p) => {
+    if (p.relevance < 0) p.relevance = neutral;
+  });
   const maxR = Math.max(1, ...papers.map((p) => p.relevance));
   const maxC = Math.max(1, ...papers.map((p) => Math.log1p(p.citations)));
   const velocity = (p: Paper) =>
@@ -403,7 +434,7 @@ export async function discover(
   progress("Searching OpenAlex…");
   try {
     const select =
-      "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,abstract_inverted_index,referenced_works";
+      "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works";
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({

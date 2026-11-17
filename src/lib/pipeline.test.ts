@@ -7,6 +7,7 @@ import {
   finish,
   discover,
   cleanAbstract,
+  matchesQuery,
   startHere,
   playThrough,
   type Dataset,
@@ -155,6 +156,94 @@ test("TV excludes outliers and prioritizes available excerpts", () => {
   assert.equal(tour.filter((p) => p.takeaway).length, 14);
   assert.ok(!tour.some((p) => p.id === "19"));
   assert.ok(tour[0].year <= tour[1].year);
+});
+test("query tokens match across title and abstract in any order", () => {
+  const gcn = {
+    ...p,
+    title: "Semi-Supervised Classification with Graph Convolutional Networks",
+    abstract: "We use neural networks to learn representations of graphs.",
+  };
+  assert.equal(matchesQuery(gcn, "graph neural networks"), true);
+  assert.equal(
+    matchesQuery({ ...p, title: "Mechanistic interpretability with a sparse autoencoder" }, "sparse autoencoders mechanistic interpretability"),
+    true,
+  );
+  assert.equal(
+    matchesQuery({ ...p, title: "Graph theory in social networks" }, "graph neural networks"),
+    false,
+  );
+  assert.equal(matchesQuery(gcn, ""), false);
+  assert.equal(matchesQuery(gcn, "the and of"), false);
+});
+test("citation-only relevance is neutral and duplicate relevance survives either arrival order", () => {
+  const gat = {
+    ...p,
+    id: "gat",
+    doi: "10/gat",
+    title: "Graph Attention Networks",
+    abstract: "Neural networks for graphs.",
+    citations: 28000,
+    relevance: -1,
+  };
+  const others = Array.from({ length: 8 }, (_, i) => ({
+    ...p,
+    id: `other${i}`,
+    doi: `10/other${i}`,
+    title: `Graph neural networks application ${i}`,
+    relevance: 10 + i,
+    citations: 100 + i,
+  }));
+  const result = finish([...others, gat], "OpenAlex", "graph neural networks", 9);
+  assert.ok(startHere(result.papers).some((p) => p.id === "gat"));
+  assert.equal(result.papers.find((p) => p.id === "gat")?.relevance, 13.5);
+  for (const pair of [[gat, { ...gat, relevance: 20 }], [{ ...gat, relevance: 20 }, gat]]) {
+    assert.equal(finish(pair, "OpenAlex", "graph neural networks", 1).papers[0].relevance, 20);
+  }
+  assert.equal(finish([gat], "OpenAlex", "graph neural networks", 1).papers[0].relevance, 0);
+});
+test("OpenAlex topics admit GraphSAGE while incidental abstract mentions stay out of Start here", () => {
+  const graphsage = {
+    ...p,
+    title: "Inductive Representation Learning on Large Graphs",
+    abstract: "We learn node embeddings by aggregating neighborhood features.",
+    topics: ["Advanced Graph Neural Networks"],
+  };
+  assert.equal(matchesQuery(graphsage, "graph neural networks"), true);
+  assert.equal(matchesQuery({ ...graphsage, topics: [] }, "graph neural networks"), false);
+  assert.equal(matchesQuery({ ...graphsage, title: "Learning embeddings" }, "graph neural networks"), false);
+  const lecun = {
+    ...p,
+    id: "lecun",
+    doi: "10/lecun",
+    title: "Gradient-based learning applied to document recognition",
+    abstract: "Neural networks use graph representations.",
+  };
+  assert.equal(matchesQuery(lecun, "graph neural networks"), true);
+  assert.deepEqual(startHere([lecun, graphsage], "graph neural networks"), [graphsage]);
+  assert.deepEqual(startHere([lecun], "graph neural networks"), []);
+  assert.deepEqual(startHere([], "graph neural networks"), []);
+});
+test("OpenAlex citation-only records receive neutral relevance during discovery", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (url) => Response.json({
+      meta: { count: 2 },
+      results: [{
+        id: String(url).includes("sort=") ? "gat" : "gnn",
+        title: "Graph neural networks",
+        publication_year: 2020,
+        cited_by_count: String(url).includes("sort=") ? 28000 : 100,
+        topics: [{ display_name: "Advanced Graph Neural Networks" }],
+        concepts: [{ display_name: "Machine learning" }],
+        ...(String(url).includes("sort=") ? {} : { relevance_score: 15 }),
+      }],
+    })) as typeof fetch;
+    const d = await discover("graph neural networks");
+    assert.equal(d.papers.find((p) => p.id === "gat")?.relevance, 15);
+    assert.deepEqual(d.papers[0].topics, ["Advanced Graph Neural Networks", "Machine learning"]);
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 test("Crossref snapshot canons remain topical for diffusion, CRISPR and transformers", () => {
   const load = (slug: string): Dataset =>
