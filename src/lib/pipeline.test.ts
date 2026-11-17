@@ -136,6 +136,39 @@ test("both indexes receive cleaned question content", async () => {
     globalThis.fetch = original;
   }
 });
+test("Crossref citation-ranked results retain Unicode topic matches", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const [query, title] of [
+      ["机器学习", "基于机器学习的图像研究"],
+      ["protéine", "La proteine et ses fonctions"],
+    ]) {
+      let citationRequests = 0;
+      globalThis.fetch = (async (url) => {
+        const parsed = new URL(String(url));
+        if (parsed.hostname.includes("openalex"))
+          return new Response("", { status: 503 });
+        const cited = parsed.searchParams.get("sort") === "is-referenced-by-count";
+        if (cited) citationRequests++;
+        return Response.json({ message: {
+          "total-results": 0,
+          items: cited ? [title, "Unrelated biology"].map((name, i) => ({
+            DOI: `10/test-${i}`,
+            title: [name],
+            published: { "date-parts": [[2020]] },
+            "is-referenced-by-count": 1000,
+          })) : [],
+        } });
+      }) as typeof fetch;
+      const result = await discover(query);
+      assert.equal(result.source, "Crossref");
+      assert.equal(citationRequests, 1);
+      assert.deepEqual(result.papers.map((paper) => paper.title), [title]);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("deduplication, junk filtering, empty results, ranking", () => {
   const d = finish(
     [

@@ -224,6 +224,10 @@ function queryTokens(query: string) {
     .split(" ")
     .filter((t) => t && !ignored.has(t));
 }
+const contains = (text: string, term: string) =>
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u.test(term)
+    ? text.includes(term)
+    : (" " + text + " ").includes(" " + term + " ");
 const filler = new Set([
   ...stop,
   ..."what how why who which when where do does did can could would should be been being was were most important best key papers explain explaining explained about tell me us please they their than beat etc".split(" "),
@@ -246,10 +250,6 @@ export function matchesQuery(p: Paper, query: string) {
   const phrase = normalized(content);
   if (!phrase) return false;
   const terms = [...new Set(phrase.split(" "))];
-  const contains = (text: string, term: string) =>
-    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u.test(term)
-      ? text.includes(term)
-      : (" " + text + " ").includes(" " + term + " ");
   const texts = [p.title, p.abstract].map(normalized);
   if (texts.some((text) => contains(text, normalized(query)))) return true;
   if (content === query) return false;
@@ -525,10 +525,10 @@ export async function discover(
       const cited = await json(
         base + "&sort=is-referenced-by-count&order=desc",
       );
-      const terms = query.toLowerCase().match(/[a-z0-9]+/g) || [];
+      const terms = normalized(searchQuery).split(" ").filter(Boolean);
       const extra = (cited.message.items.map(cross) as Paper[]).filter(
         (p) =>
-          terms.filter((t) => p.title.toLowerCase().includes(t)).length >=
+          terms.filter((t) => contains(normalized(p.title), t)).length >=
           Math.max(1, Math.ceil(terms.length * 0.6)),
       );
       works = works.concat(extra);
