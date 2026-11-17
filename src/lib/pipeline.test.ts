@@ -376,6 +376,16 @@ test("themes skip generic words, prefer phrases and cover outliers", () => {
   cluster(sparse, "finding");
   assert.equal(sparse[0].theme, "Other");
 });
+test("non-research types are excluded and weak Crossref records are demoted", () => {
+  const research = { ...p, title: "Sleep research", citations: 173, relevance: 1 };
+  const news = { ...p, id: "b", doi: "10/b", title: "Sleep news", citations: 7, relevance: 2, year: new Date().getFullYear() };
+  assert.equal(finish([news, research], "Crossref", "sleep", 2).papers[0].id, research.id);
+  for (const type of ["news", "editorial", "letter", "erratum", "paratext", "comment", "peer-review"]) {
+    assert.equal(finish([{ ...research, type }], "OpenAlex", "sleep", 1).papers.length, 0);
+  }
+  assert.equal(finish([{ ...research, type: "article" }], "OpenAlex", "sleep", 1).papers.length, 1);
+  assert.equal(finish([], "Crossref", "sleep", 0).papers.length, 0);
+});
 test("deduplication, junk filtering, empty results, ranking", () => {
   const d = finish(
     [
