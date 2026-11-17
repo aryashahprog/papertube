@@ -24,6 +24,39 @@
 .paper-visual-figure img {
   padding: 12px 14px 4px;
 }
+.figure-expand {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.figure-expand-icon {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  color: #66725f;
+  font-size: 15px;
+  line-height: 1;
+  background: #ffffffdf;
+}
+.figure-dialog {
+  width: min(94vw, 1400px);
+  max-width: 94vw;
+  max-height: 90dvh;
+  padding: 14px;
+  border: 1px solid #dedfd5;
+  border-radius: 10px;
+  color: #222b26;
+  background: white;
+}
+.figure-dialog::backdrop { background: #102019b8; }
+.figure-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: 12px; }
+.figure-tools button { padding: 8px 13px; border: 1px solid #dedfd5; border-radius: 5px; background: #f6f4ee; }
+.figure-scroll { overflow: auto; max-height: calc(90dvh - 90px); overscroll-behavior: contain; }
+.figure-scroll img { display: block; width: max(100%, 1000px); height: auto; max-width: none; }
 .sketch-node {
   fill: #f8f9f2;
   stroke: #aab9a0;
@@ -41,7 +74,7 @@
   padding: 7px 12px 9px;
   font-size: 9px;
   line-height: 1.4;
-  color: #77816e;
+  color: #808777;
   text-align: left;
 }
 .visual-caption a { text-decoration: underline; text-underline-offset: 3px; }
