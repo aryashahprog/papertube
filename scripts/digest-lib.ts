@@ -17,13 +17,23 @@ export function deliveryPlan(subscribers: Subscriber[]) {
   const groups = groupSubscribers(subscribers);
   return { unfiltered, groups: unfiltered && groups.size ? new Map([["featured", [...groups.values()].reduce((a, b) => a + b, 0)]]) : groups };
 }
-export const parseTopics = (value: string) => value === "featured" ? [] : [...new Set(value.split("|").map(normalizeQuery).filter(Boolean))].sort();
-export function selectPapers(topics: string[], batches: Map<string, RecentPaper[]>, roundRobin = true): RecentPaper[] {
+export const parseTopics = (value: string) => value === "featured" ? [] : [...new Set(value.split("|").map(normalizeQuery).filter(Boolean))];
+export const previewTopics = (dryRun: boolean, key: string | undefined, topics: string | undefined) => topics !== undefined ? topics || "featured" : dryRun && !key ? "featured" : undefined;
+export interface SelectedPaper extends RecentPaper { selectedTopic: string }
+export async function topicBatches(topics: string[], load: (topic: string) => Promise<RecentPaper[]>, unavailable: (topic: string) => void): Promise<Map<string, RecentPaper[]>> {
+  const batches = new Map<string, RecentPaper[]>();
+  for (const topic of topics) {
+    try { batches.set(topic, await load(topic)); }
+    catch { unavailable(topic); }
+  }
+  return batches;
+}
+export function selectPapers(topics: string[], batches: Map<string, RecentPaper[]>, roundRobin = true): SelectedPaper[] {
   const queues = topics.map(topic => [...(batches.get(topic) || [])]
-    .filter(p => titleMatchesTopic(p.title, topic))
+    .filter(p => titleMatchesTopic(p.title, topic)).map(p => ({ ...p, selectedTopic: topic }))
     .sort((a, b) => (b.citations || 0) - (a.citations || 0) || a.title.localeCompare(b.title)));
   if (!roundRobin) queues.splice(0, queues.length, queues.flat().sort((a, b) => (b.citations || 0) - (a.citations || 0) || a.title.localeCompare(b.title)));
-  const selected: RecentPaper[] = [], ids = new Set<string>(), titles = new Set<string>();
+  const selected: SelectedPaper[] = [], ids = new Set<string>(), titles = new Set<string>();
   while (queues.some(queue => queue.length) && selected.length < 5) {
     for (const queue of queues) {
       while (queue.length) {
@@ -56,6 +66,11 @@ export const audienceFields = (topics: string, unfiltered: boolean) => unfiltere
 export const subjectFor = (papers: RecentPaper[]) => `${papers.length} paper${papers.length === 1 ? "" : "s"} this week`;
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const safeUrl = (value: string) => /^https?:\/\//i.test(value) ? escape(value) : "#";
-export function renderEmail(papers: RecentPaper[], topics: Topic[]): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${subjectFor(papers)}</title></head><body style="margin:0;background:#fff;color:#202124;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',Inter,Helvetica,Arial,sans-serif"><main style="max-width:560px;margin:0 auto;padding:40px 24px"><p style="font-size:12px;color:#777;margin:0 0 28px">PaperTube · Weekly</p><h1 style="font-size:28px;font-weight:600;letter-spacing:-1px;margin:0 0 32px">${subjectFor(papers)}</h1>${papers.map(paper => `<article style="margin:0 0 28px"><h2 style="font-size:18px;line-height:1.4;font-weight:600;margin:0 0 8px"><a style="color:#202124;text-decoration:none" href="${safeUrl(paper.url)}">${escape(paper.title)}</a></h2><p style="font-size:12px;color:#777;margin:0 0 8px">${escape([paper.venue, paper.date].filter(Boolean).join(" · "))}</p>${paper.takeaway ? `<p style="font-size:14px;line-height:1.6;margin:0;color:#555">${escape(paper.takeaway)}</p>` : ""}</article>`).join("")}<section style="border-top:1px solid #eee;padding-top:22px;margin-top:32px"><p style="font-size:12px;color:#777">You might like</p><p style="font-size:13px;line-height:1.9">${topics.map(topic => `<a style="color:#444;margin-right:14px" href="https://aryashahprog.github.io/papertube/?q=${escape(encodeURIComponent(topic.query))}">${escape(topic.label)}</a>`).join(" ")}</p></section><footer style="margin-top:32px;font-size:12px"><a style="color:#777" href="https://aryashahprog.github.io/papertube/">PaperTube</a></footer></main></body></html>`;
+export function renderEmail(papers: (RecentPaper & { selectedTopic?: string })[], topics: Topic[], headings: Topic[] = []): string {
+  const article = (paper: RecentPaper) => `<article style="margin:0 0 28px"><h3 style="font-size:18px;line-height:1.4;font-weight:600;margin:0 0 8px"><a style="color:#202124;text-decoration:none" href="${safeUrl(paper.url)}">${escape(paper.title)}</a></h3><p style="font-size:12px;color:#777;margin:0 0 8px">${escape([paper.venue, paper.date].filter(Boolean).join(" · "))}</p>${paper.takeaway ? `<p style="font-size:14px;line-height:1.6;margin:0;color:#555">${escape(paper.takeaway)}</p>` : ""}</article>`;
+  const content = headings.length ? headings.map(topic => {
+    const matches = papers.filter(paper => paper.selectedTopic === topic.query);
+    return matches.length ? `<section><h2 style="font-size:14px;font-weight:500;color:#777;margin:32px 0 16px">${escape(topic.label)}</h2>${matches.map(article).join("")}</section>` : "";
+  }).join("") : papers.map(article).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${subjectFor(papers)}</title></head><body style="margin:0;background:#fff;color:#202124;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',Inter,Helvetica,Arial,sans-serif"><main style="max-width:560px;margin:0 auto;padding:40px 24px"><p style="font-size:12px;color:#777;margin:0 0 28px">PaperTube · Weekly</p><h1 style="font-size:28px;font-weight:600;letter-spacing:-1px;margin:0 0 32px">${subjectFor(papers)}</h1>${content}<section style="border-top:1px solid #eee;padding-top:22px;margin-top:32px"><p style="font-size:12px;color:#777">You might like</p><p style="font-size:13px;line-height:1.9">${topics.map(topic => `<a style="color:#444;margin-right:14px" href="https://aryashahprog.github.io/papertube/?q=${escape(encodeURIComponent(topic.query))}">${escape(topic.label)}</a>`).join(" ")}</p></section><footer style="margin-top:32px;font-size:12px"><a style="color:#777" href="https://aryashahprog.github.io/papertube/">PaperTube</a></footer></main></body></html>`;
 }

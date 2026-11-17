@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audience, audienceFields, deliveryPlan, groupSubscribers, isoWeek, parseTopics, renderEmail, selectPapers, suggestions } from "./digest-lib";
+import { audience, audienceFields, deliveryPlan, groupSubscribers, isoWeek, parseTopics, previewTopics, renderEmail, selectPapers, suggestions, topicBatches } from "./digest-lib";
 import { recentWorks, type RecentPaper } from "../src/lib/follows";
 
 const paper = (id: string, title: string, citations = 0): RecentPaper => ({ id, title, citations, url: `https://doi.org/${id}`, year: 2026, date: "2026-11-15" });
@@ -15,7 +15,7 @@ test("groups only deliverable subscriber types by exact metadata string", () => 
     { type: "regular", metadata: { topics: ["crispr"] } },
   ])], [["crispr|longevity", 2], ["longevity|crispr", 1], ["featured", 4]]);
   assert.equal(groupSubscribers([]).size, 0);
-  assert.deepEqual(parseTopics(" Longevity | CRISPR |crispr||"), ["crispr", "longevity"]);
+  assert.deepEqual(parseTopics(" Longevity | CRISPR |crispr||"), ["longevity", "crispr"]);
   assert.equal(audience("").filters[0].value, "featured");
   assert.equal(audience("featured").filters[0].value, "featured");
   assert.deepEqual(parseTopics("featured"), []);
@@ -40,9 +40,45 @@ test("round robin sorts by citations, skips duplicates and unrelated titles, cap
   const b = [a[0], paper("duplicate", "CRISPR longevity", 99), paper("5", "Longevity five", 20), paper("6", "Longevity six", 10), paper("7", "unrelated", 1000)];
   const batches = new Map([["crispr", a.reverse()], ["longevity", b]]);
   assert.deepEqual(selectPapers(["crispr", "longevity"], batches).map(p => p.id), ["1", "5", "2", "6", "3"]);
+  assert.deepEqual(selectPapers(["crispr", "longevity"], batches).map(p => p.selectedTopic), ["crispr", "longevity", "crispr", "longevity", "crispr"]);
   assert.deepEqual(selectPapers(["crispr", "longevity"], batches, false).map(p => p.id), ["1", "2", "3", "4", "5"]);
   assert.deepEqual(selectPapers(["missing"], batches), []);
   assert.deepEqual(selectPapers([], new Map()), []);
+});
+test("grouped rendering follows topic order and selected attribution, omitting empty headings", () => {
+  const shared = paper("shared", "CRISPR longevity", 100);
+  const batches = new Map([["crispr", [shared, paper("c", "CRISPR finding", 50)]], ["longevity", [shared, paper("l", "Longevity finding", 20)]]]);
+  const selected = selectPapers(["crispr", "longevity"], batches);
+  const headings = [{ query: "longevity", label: "Longevity" }, { query: "crispr", label: "CRISPR & editing" }, { query: "missing", label: "Unused" }];
+  const html = renderEmail(selected, [], headings);
+  assert.equal((html.match(/<article /g) || []).length, 3);
+  assert.equal((html.match(/CRISPR longevity/g) || []).length, 1);
+  assert.ok(html.indexOf(">Longevity</h2>") < html.indexOf("Longevity finding"));
+  assert.ok(html.indexOf("Longevity finding") < html.indexOf(">CRISPR &amp; editing</h2>"));
+  assert.ok(html.indexOf(">CRISPR &amp; editing</h2>") < html.indexOf("CRISPR longevity"));
+  assert.ok(!html.includes("Unused"));
+  const general = renderEmail(selectPapers(["crispr", "longevity"], batches, false), [], headings);
+  assert.ok(general.includes(">CRISPR &amp; editing</h2>"));
+  assert.ok(!renderEmail([], [], headings).includes("<h2"));
+});
+test("keyless dry run defaults to featured while configured runs list subscribers", () => {
+  assert.equal(previewTopics(true, undefined, undefined), "featured");
+  assert.equal(previewTopics(true, undefined, ""), "featured");
+  assert.equal(previewTopics(true, undefined, "crispr|longevity"), "crispr|longevity");
+  assert.equal(previewTopics(true, "key", undefined), undefined);
+  assert.equal(previewTopics(false, "key", undefined), undefined);
+  assert.equal(previewTopics(false, undefined, undefined), undefined);
+});
+test("topic batches retain working and empty topics when another index request fails", async () => {
+  const failures: string[] = [];
+  const batches = await topicBatches(["crispr", "offline", "empty"], async topic => {
+    if (topic === "offline") throw new Error("Index unavailable");
+    return topic === "empty" ? [] : [paper("c", "CRISPR finding")];
+  }, topic => failures.push(topic));
+  assert.deepEqual([...batches.keys()], ["crispr", "empty"]);
+  assert.deepEqual(batches.get("empty"), []);
+  assert.deepEqual(failures, ["offline"]);
+  assert.equal((await topicBatches([], async () => [], () => {})).size, 0);
 });
 test("suggestions exclude follows and rotate deterministically at ISO week boundaries", () => {
   const featured = ["a", "b", "c", "d", "e"].map(query => ({ query, label: query }));
