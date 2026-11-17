@@ -21,6 +21,7 @@ import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
 import { createAbstractHydrator } from "./lib/abstracts";
+import { digestTopics } from "./lib/digest-signup";
 import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#bed6ae",
@@ -403,6 +404,15 @@ function App() {
               <span className={counts[f.q] ? "unread-count" : "read-count"}>{counts[f.q] === undefined ? "—" : counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</span><span className="inbox-arrow">↗</span>
             </button>)}</div>
           </section>
+          {import.meta.env.VITE_BUTTONDOWN_USERNAME && <section className="weekly-email" aria-label="Weekly email">
+            <div><h2>Weekly email</h2><p id="weekly-email-hint">5 new papers in your topics, every Monday.</p></div>
+            <form action={`https://buttondown.com/api/emails/embed-subscribe/${encodeURIComponent(import.meta.env.VITE_BUTTONDOWN_USERNAME)}`} method="post" target="_blank" rel="noopener noreferrer">
+              <input type="email" name="email" aria-label="Email address" aria-describedby="weekly-email-hint" placeholder="Email address" autoComplete="email" required />
+              <input type="hidden" name="embed" value="1" />
+              <input type="hidden" name="metadata__topics" value={digestTopics(follows)} />
+              <button type="submit">Join</button>
+            </form>
+          </section>}
           <section className="featured-topics" aria-label="Explore topics">
           <h2>Explore</h2>
           <div className="featured-grid">

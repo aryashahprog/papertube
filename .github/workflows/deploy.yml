@@ -30,6 +30,8 @@ jobs:
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
         run: npm run prebuild:topics -- --refresh
       - run: npm run build
+        env:
+          VITE_BUTTONDOWN_USERNAME: ${{ vars.BUTTONDOWN_USERNAME }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
