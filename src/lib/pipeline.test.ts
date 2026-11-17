@@ -279,17 +279,16 @@ test("rewritten questions retain verbatim matches and require all short content 
     globalThis.fetch = original;
   }
 });
-test("featured topics retain main's any-order token and topic matches", () => {
+test("featured topics retain any-order token and metadata matches", () => {
   const previous = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).map((w) => w.length > 4 ? w.replace(/s$/, "") : w).join(" ");
   for (const topic of examples) {
     const data: Dataset = JSON.parse(readFileSync(new URL(`../../public/data/${topic.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.json`, import.meta.url), "utf8"));
     const terms = previous(topic).split(" ");
     for (const paper of data.papers) {
       const text = new Set(previous(paper.title + " " + paper.abstract).split(" "));
-      const title = new Set(previous(paper.title).split(" "));
       const topics = new Set(previous((paper.topics || []).join(" ")).split(" "));
       assert.equal(matchesQuery(paper, topic), terms.every((term) => text.has(term)) ||
-        (terms.some((term) => title.has(term)) && terms.every((term) => topics.has(term))), topic);
+        terms.every((term) => topics.has(term)), topic);
     }
   }
 });
@@ -716,7 +715,7 @@ test("OpenAlex citation-only records receive neutral relevance during discovery"
     globalThis.fetch = original;
   }
 });
-test("Crossref snapshot canons remain topical for diffusion, CRISPR and transformers", () => {
+test("OpenAlex snapshot canons include foundational diffusion, CRISPR and transformer papers", () => {
   const load = (slug: string): Dataset =>
     JSON.parse(
       readFileSync(
@@ -725,12 +724,17 @@ test("Crossref snapshot canons remain topical for diffusion, CRISPR and transfor
       ),
     );
   const diffusion = load("diffusion-models");
-  const titles = startHere(diffusion.papers)
+  for (const topic of examples) {
+    const data = load(topic.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    assert.equal(data.source, topic === "GLP-1 drugs" ? "Europe PMC" : "OpenAlex");
+    assert.equal(startHere(data.papers, topic).length, 5, topic);
+  }
+  const titles = startHere(diffusion.papers, "diffusion models")
     .map((p) => p.title)
     .join(" ");
   assert.equal(startHere(diffusion.papers).length, 5);
   assert.match(titles, /Latent Diffusion/);
-  assert.match(titles, /Conditional Control/);
+  assert.match(titles, /Denoising Diffusion Probabilistic Models/);
   assert.doesNotMatch(titles, /Jump-|Oxides|Finance/i);
   assert.doesNotMatch(
     playThrough(diffusion.papers)
@@ -738,11 +742,11 @@ test("Crossref snapshot canons remain topical for diffusion, CRISPR and transfor
       .join(" "),
     /Jump-|Oxides|Finance/i,
   );
-  assert.ok(
-    startHere(load("crispr").papers).every((p) => /CRISPR/i.test(p.title)),
-  );
-  const transformers = startHere(load("transformers").papers);
+  assert.ok(startHere(load("crispr").papers, "CRISPR").some((p) => /Programmable Dual-RNA/.test(p.title)));
+  const transformers = startHere(load("transformers").papers, "transformers");
   assert.equal(transformers.length, 5);
+  assert.ok(transformers.some((p) => p.title === "Attention Is All You Need"));
+  assert.ok(transformers.some((p) => p.title.startsWith("BERT:")));
   assert.ok(
     transformers.every(
       (p) =>
