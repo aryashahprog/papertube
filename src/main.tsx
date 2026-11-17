@@ -825,6 +825,7 @@ function App() {
                     {current.authors.length > 1 ? " et al." : ""}{" "}
                     <span> / </span> {compact(current.citations)} citations
                   </div>
+                  {links(current)}
                 </div>
               </article>
               <div className="tv-controls">
