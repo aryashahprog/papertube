@@ -885,6 +885,24 @@ test("Start here uses relevance-weighted core topics without changing the full l
   const noisy = Array.from({ length: 30 }, () => make("Networks", "Complex Networks", 1));
   assert.deepEqual(startHere([smallWorld, gcn, gat, graphsage, ...noisy], "graph neural networks"), [gcn, gat, graphsage, smallWorld, noisy[0]]);
 });
+test("Start here excludes incidental concepts when a distinctive token has topic consensus", () => {
+  const broad = "Quantum Computing Algorithms and Architecture";
+  const make = (id: string, title: string, abstract: string): Paper => ({ ...p, id, title, abstract, coherent: true, topics: [broad, "Quantum error correction"], topicNames: [broad], relevance: 10 });
+  const focused = Array.from({ length: 5 }, (_, i) => make(String(i), `Quantum error correction with codes ${i}`, "Quantum codes protect memories."));
+  const adjacent = [make("nisq", "Quantum Computing in the NISQ era", "We discuss quantum error correction."), make("supremacy", "Quantum supremacy", "Quantum error detection is discussed."), make("general", "Quantum computing", "Quantum computing algorithms.")];
+  assert.deepEqual(startHere([...adjacent, ...focused], "quantum error correction"), focused);
+  assert.deepEqual(startHere([], "quantum error correction"), []);
+});
+test("distinctive filtering preserves topic-backed titles and abstains without consensus or a unique token", () => {
+  const neural = "Advanced Graph Neural Networks";
+  const graph = Array.from({ length: 5 }, (_, i) => ({ ...p, id: String(i), title: `Graph networks ${i}`, abstract: "Graph neural networks learn embeddings.", topics: [neural], topicNames: [neural], coherent: true }));
+  graph.push({ ...graph[0], id: "extra", title: "Graph networks", abstract: "Graph networks learn embeddings." });
+  assert.equal(startHere(graph, "graph neural networks").length, 5);
+  const niche = Array.from({ length: 6 }, (_, i) => ({ ...p, id: String(i), title: i ? `Tardigrade genomes ${i}` : "Tardigrade cryptobiosis", abstract: i === 5 ? "Tardigrade genomes." : "Tardigrade cryptobiosis preserves cells.", coherent: true }));
+  assert.deepEqual(startHere(niche, "tardigrade cryptobiosis"), niche.slice(0, 5));
+  const tied = niche.map(paper => ({ ...paper, abstract: "Tardigrade cryptobiosis preserves cells." }));
+  assert.equal(startHere(tied, "tardigrade cryptobiosis").length, 5);
+});
 test("Start here backfills topic-less records after core qualifiers in rank order", () => {
   const papers = Array.from({ length: 7 }, (_, i): Paper => ({
     ...p, id: String(i), title: `Graph research ${i}`, theme: "Other", topics: [],
@@ -913,6 +931,7 @@ test("OpenAlex citation-only records receive neutral relevance during discovery"
     const d = await discover("graph neural networks");
     assert.equal(d.papers.find((p) => p.id === "gat")?.relevance, 15);
     assert.deepEqual(d.papers[0].topics, ["Advanced Graph Neural Networks", "Machine learning"]);
+    assert.deepEqual(d.papers[0].topicNames, ["Advanced Graph Neural Networks"]);
   } finally {
     globalThis.fetch = original;
   }
@@ -949,6 +968,10 @@ test("OpenAlex snapshot canons include foundational diffusion, CRISPR and transf
   assert.equal(transformers.length, 5);
   assert.ok(transformers.some((p) => p.title === "Attention Is All You Need"));
   assert.ok(transformers.some((p) => p.title.startsWith("BERT:")));
+  const quantum = startHere(load("quantum-error-correction").papers, "quantum error correction");
+  assert.ok(quantum.some(p => /Stabilizer Codes/.test(p.title)));
+  assert.ok(quantum.some(p => /surface code threshold/.test(p.title)));
+  assert.ok(quantum.every(p => !/NISQ|supremacy|10th Anniversary Edition/i.test(p.title)));
   assert.ok(
     transformers.every(
       (p) =>
