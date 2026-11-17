@@ -4,6 +4,7 @@ import {
   discover,
   invalidQueryMessage,
   RateLimitError,
+  publicationYear,
   examples,
   slug,
   clampQuery,
@@ -121,6 +122,7 @@ function App() {
           } catch {}
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
+        result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
         if (active) {
           setData(result);
           try {
