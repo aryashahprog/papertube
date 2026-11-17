@@ -12,13 +12,24 @@ test("DOI and publication types normalize to pipeline fields", () => {
   assert.equal(workType(["Unknown"]), undefined);
 });
 test("enrichment cleans abstracts, regenerates takeaways and preserves missing metadata", () => {
-  const p = { abstract: "", takeaway: "", type: "article" } as Paper;
+  const p = { title: "Established baselines", abstract: "", takeaway: "", type: "article" } as Paper;
   const updated = enrichPaper(p, { abstract: "<p>We demonstrate a significant improvement over established baselines in all experiments.</p>", publicationTypes: ["Editorial"] });
   assert.match(updated.takeaway, /^We demonstrate/);
   assert.equal(updated.type, "editorial");
   assert.ok(!updated.abstract.includes("<p>"));
   assert.deepEqual(enrichPaper(p, null), p);
   assert.equal(enrichPaper(updated, null).abstract, updated.abstract);
+});
+test("enrichment validates replacement abstracts and uses valid existing text or no takeaway", () => {
+  const paper = { title: "Diffusion image synthesis", abstract: "We improve diffusion image synthesis with neural networks.", takeaway: "" } as Paper;
+  const valid = enrichPaper(paper, { abstract: "Unrelated work on marine ecosystems." });
+  assert.equal(valid.abstract, paper.abstract);
+  assert.ok(valid.takeaway);
+  const missing = enrichPaper({ ...paper, abstract: "Diffusion models. docker pull example/model" }, null);
+  assert.equal(missing.abstract, "");
+  assert.equal(missing.takeaway, "");
+  const replacement = enrichPaper(missing, { abstract: "We demonstrate improved diffusion image synthesis across benchmarks." });
+  assert.match(replacement.takeaway, /diffusion image synthesis/);
 });
 test("requests retry 429 gently and surface permanent errors", async () => {
   let calls = 0; const waits: number[] = [];
