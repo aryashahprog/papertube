@@ -1263,3 +1263,22 @@ body:has(.tv) {
     padding-bottom: 0;
   }
 }
+.your-topics, .new-papers {
+  text-align: left;
+  margin: 32px 0;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.your-topics h2, .new-papers h2 { margin: 0 0 16px; font-size: 22px; }
+.chips button { white-space: normal; text-align: left; }
+.your-topics .try-label { text-align: center; font-size: 10px; margin: 0 0 16px; }
+.your-topics .chips { justify-content: center; }
+.chips button small { display: inline-block; color: var(--green); margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: #e5e9dd; }
+.new-feed { display: grid; }
+.new-feed a { display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 12px 0; }
+.new-feed a + a { border-top: 1px solid var(--line); }
+.new-feed small { color: var(--muted); flex-shrink: 0; }
+@media (max-width: 600px) { .new-feed a { flex-direction: column; gap: 4px; } }
+.follow-hint, .new-papers p { color: #596353; font-size: 13px; }
+.actions { flex-wrap: wrap; }

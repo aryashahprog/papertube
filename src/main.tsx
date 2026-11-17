@@ -18,6 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
+import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -34,12 +35,29 @@ const compact = (n: number) =>
     maximumFractionDigits: 1,
   }).format(n);
 function App() {
+  const [follows, setFollows] = useState<Follow[]>(() => readFollows(followsStorage));
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [recent, setRecent] = useState<RecentPaper[]>([]);
+  const [recentTotal, setRecentTotal] = useState(0);
+  const [recentUrl, setRecentUrl] = useState("");
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
   const q = clampQuery(params.get("q") || "");
   const hot = params.get("view") === "hot";
   const playing = params.get("play") === "1";
+  const followed = follows.find((f) => f.q === normalizeQuery(q));
+  useEffect(() => {
+    if (q) return;
+    let active = true;
+    setCounts({});
+    follows.slice(0, 8).forEach((f) => {
+      countNewPapers(f).then((count) => {
+        if (active) setCounts((previous) => ({ ...previous, [f.q]: count }));
+      }).catch(() => {});
+    });
+    return () => { active = false; };
+  }, [q, follows]);
   const [input, setInput] = useState(q),
     [data, setData] = useState<Dataset | null>(null),
     [status, setStatus] = useState(""),
@@ -80,6 +98,8 @@ function App() {
   }, []);
   useEffect(() => {
     setInput(q);
+    setRecent([]);
+    setRecentTotal(0);
     setSelected(null);
     if (!q) {
       setData(null);
@@ -107,7 +127,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = sessionStorage.getItem("pt-v6:" + q.toLowerCase());
+          const cached = cacheStorage.getItem("pt-v6:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -130,8 +150,27 @@ function App() {
         }
         if (active) {
           setData(result);
+          const saved = readFollows(followsStorage);
+          const previous = saved.find((f) => f.q === normalizeQuery(q));
+          if (previous) {
+            try {
+              const batch = await recentBatch(previous);
+              const items = batch.papers;
+              if (!active) return;
+              setRecent(items);
+              setRecentTotal(batch.total);
+              setRecentUrl(batch.searchUrl);
+              const latest = readFollows(followsStorage);
+              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: [...new Set([...previous.seenIds, ...items.map((p) => p.id)])], seenPapers: [...(previous.seenPapers || []), ...items.filter((p) => p.date).map((p) => ({ id: p.id, date: p.date! }))] };
+              const updated = latest.map((f) => f.q === previous.q ? visited : f);
+              if (writeFollows(followsStorage, updated)) {
+                markTopicVisited(previous, visited);
+                setFollows(updated);
+              }
+            } catch {}
+          }
           try {
-            sessionStorage.setItem(
+            cacheStorage.setItem(
               "pt-v6:" + q.toLowerCase(),
               JSON.stringify(result),
             );
@@ -307,13 +346,10 @@ function App() {
         <main className="home">
           <div className="eyebrow">FOLLOW YOUR CURIOSITY</div>
           <h1>
-            What do you want
-            <br />
-            to understand?
+            The must-read papers on any topic.
           </h1>
           <p className="intro">
-            The papers that matter on any topic, mapped by theme,
-            <br className="desktop" /> in seconds. Free. No sign-up.
+            Follow topics. Come back for new papers, mapped by theme.
           </p>
           <form className="search huge" onSubmit={search}>
             <span>⌕</span>
@@ -328,6 +364,14 @@ function App() {
             <kbd>/</kbd>
             <button aria-label="Search">↗</button>
           </form>
+          {!follows.length && <p className="follow-hint">Follow topics to track papers</p>}
+          {!!follows.length && <section className="your-topics" aria-label="Your topics">
+            <h2 className="try-label">YOUR TOPICS</h2>
+            <div className="chips">{[...follows].sort((a, b) => Number((counts[b.q] || 0) > 0) - Number((counts[a.q] || 0) > 0)).map((f) => <button key={f.q} onClick={() => navigate({ q: f.q })}>
+              {f.label} <span>↗</span>
+              {counts[f.q] !== undefined && <small title={`Since ${relativeDate(f.lastSeenAt)}`}>{counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</small>}
+            </button>)}</div>
+          </section>}
           <div className="try-label">A FEW GOOD RABBIT HOLES</div>
           <div className="chips">
             {examples.map((t) => (
@@ -368,6 +412,30 @@ function App() {
               )}
             </div>
             <div className="actions">
+              <button aria-pressed={!!followed} disabled={loading || !data || !!error} onClick={() => {
+                const saved = readFollows(followsStorage);
+                const now = new Date().toISOString();
+                const updated = followed ? saved.filter((f) => f.q !== normalizeQuery(q)) : [...saved, {
+                  q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
+                  seenIds: [],
+                }];
+                if (writeFollows(followsStorage, updated)) {
+                  setFollows(updated);
+                  if (!followed) {
+                    const added = updated[updated.length - 1];
+                    void seedFollow(added).then((seeded) => {
+                      const latest = readFollows(followsStorage);
+                      const current = latest.find((f) => f.q === added.q);
+                      if (!current || current.followedAt !== added.followedAt || current.lastSeenAt !== added.lastSeenAt) return;
+                      const next = latest.map((f) => f.q === added.q ? seeded : f);
+                      if (writeFollows(followsStorage, next)) {
+                        markTopicVisited(added, seeded);
+                        setFollows(next);
+                      }
+                    });
+                  }
+                }
+              }}>{followed ? "Following ✓" : "Follow topic"}</button>
               <div className="toggle" aria-label="Paper selection">
                 <button
                   className={!hot ? "active" : ""}
@@ -424,6 +492,12 @@ function App() {
               </div>
             </div>
           </div>
+          {followed && recentTotal > 0 && <section className="new-papers" aria-label="New since your last visit">
+            <h2>New since your last visit</h2>
+            <p>Top {recent.length} of {recentTotal} · <a href={recentUrl} target="_blank" rel="noreferrer">See all ↗</a></p>
+            <div className="new-feed">{recent.map((p) =>
+              <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.date || p.year} ↗</small></a>)}</div>
+          </section>}
           {data?.source === "Crossref" && (
             <p className="backup">
               ↳ Backup index in use: Crossref. Themes are title-keyword
