@@ -18,6 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
+import { countNewPapers, newPaperIds, normalizeQuery, readFollows, relativeDate, writeFollows, type Follow } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -34,12 +35,27 @@ const compact = (n: number) =>
     maximumFractionDigits: 1,
   }).format(n);
 function App() {
+  const [follows, setFollows] = useState<Follow[]>(() => readFollows(localStorage));
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [newIds, setNewIds] = useState<string[]>([]);
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
   const q = clampQuery(params.get("q") || "");
   const hot = params.get("view") === "hot";
   const playing = params.get("play") === "1";
+  const followed = follows.find((f) => f.q === normalizeQuery(q));
+  useEffect(() => {
+    if (q) return;
+    let active = true;
+    setCounts({});
+    follows.slice(0, 8).forEach((f) => {
+      countNewPapers(f).then((count) => {
+        if (active) setCounts((previous) => ({ ...previous, [f.q]: count }));
+      }).catch(() => {});
+    });
+    return () => { active = false; };
+  }, [q, follows]);
   const [input, setInput] = useState(q),
     [data, setData] = useState<Dataset | null>(null),
     [status, setStatus] = useState(""),
@@ -80,6 +96,7 @@ function App() {
   }, []);
   useEffect(() => {
     setInput(q);
+    setNewIds([]);
     setSelected(null);
     if (!q) {
       setData(null);
@@ -130,6 +147,15 @@ function App() {
         }
         if (active) {
           setData(result);
+          const saved = readFollows(localStorage);
+          const previous = saved.find((f) => f.q === normalizeQuery(q));
+          if (previous) {
+            const ids = result.papers.map((p) => p.id);
+            setNewIds(newPaperIds(ids, previous.seenIds));
+            const updated = saved.map((f) => f === previous
+              ? { ...f, lastSeenAt: new Date().toISOString(), seenIds: ids } : f);
+            if (writeFollows(localStorage, updated)) setFollows(updated);
+          }
           try {
             sessionStorage.setItem(
               "pt-v5:" + q.toLowerCase(),
@@ -307,13 +333,10 @@ function App() {
         <main className="home">
           <div className="eyebrow">FOLLOW YOUR CURIOSITY</div>
           <h1>
-            What do you want
-            <br />
-            to understand?
+            The must-read papers on any topic.
           </h1>
           <p className="intro">
-            The papers that matter on any topic, mapped by theme,
-            <br className="desktop" /> in seconds. Free. No sign-up.
+            Follow topics. Come back for new papers, mapped by theme.
           </p>
           <form className="search huge" onSubmit={search}>
             <span>⌕</span>
@@ -328,6 +351,14 @@ function App() {
             <kbd>/</kbd>
             <button aria-label="Search">↗</button>
           </form>
+          {!follows.length && <p className="follow-hint">Follow topics to track papers</p>}
+          {!!follows.length && <section className="your-topics" aria-label="Your topics">
+            <h2>Your topics</h2>
+            <div className="chips">{follows.map((f) => <button key={f.q} onClick={() => navigate({ q: f.q })}>
+              {f.label} <span>↗</span>
+              {counts[f.q] !== undefined && <small title={`Since ${relativeDate(f.lastSeenAt)}`}>{counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</small>}
+            </button>)}</div>
+          </section>}
           <div className="try-label">A FEW GOOD RABBIT HOLES</div>
           <div className="chips">
             {examples.map((t) => (
@@ -368,6 +399,15 @@ function App() {
               )}
             </div>
             <div className="actions">
+              <button aria-pressed={!!followed} disabled={loading || !data || !!error} onClick={() => {
+                const saved = readFollows(localStorage);
+                const now = new Date().toISOString();
+                const updated = followed ? saved.filter((f) => f.q !== normalizeQuery(q)) : [...saved, {
+                  q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
+                  seenIds: (data?.papers || []).map((p) => p.id),
+                }];
+                if (writeFollows(localStorage, updated)) { setFollows(updated); setNewIds([]); }
+              }}>{followed ? "Following ✓" : "Follow topic"}</button>
               <div className="toggle" aria-label="Paper selection">
                 <button
                   className={!hot ? "active" : ""}
@@ -424,6 +464,11 @@ function App() {
               </div>
             </div>
           </div>
+          {followed && !!newIds.length && <section className="new-papers" aria-label="New since your last visit">
+            <h2>New since your last visit</h2>
+            <div className="new-feed">{papers.filter((p) => newIds.includes(p.id)).map((p) =>
+              <button key={p.id} onClick={() => setSelected(p)}><span>{p.title}</span><small>{p.year} · {compact(p.citations)} citations ↗</small></button>)}</div>
+          </section>}
           {data?.source === "Crossref" && (
             <p className="backup">
               ↳ Backup index in use: Crossref. Themes are title-keyword
@@ -488,6 +533,7 @@ function App() {
                         onClick={() => setSelected(p)}
                       >
                         {p.title}
+                        {newIds.includes(p.id) && <small className="new-pill">New</small>}
                       </button>
                       <div className="byline">
                         {p.authors[0] || "Author not listed"}

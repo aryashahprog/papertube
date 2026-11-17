@@ -19,6 +19,53 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
+import { countNewPapers, newPaperIds, readFollows, writeFollows } from "./follows";
+test("cheap counts use OpenAlex, fall back to Crossref, and reject dual failure", async () => {
+  const original = globalThis.fetch;
+  const follow = { q: "crispr", label: "CRISPR", followedAt: "2025-01-01", lastSeenAt: "2025-01-02", seenIds: [] };
+  try {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify({ meta: { count: 0 } }));
+    }) as typeof fetch;
+    assert.equal(await countNewPapers(follow), 0);
+    assert.match(urls[0], /per-page=1/);
+    assert.match(urls[0], /from_publication_date%3A2025-01-02/);
+    globalThis.fetch = (async (url) => {
+      urls.push(String(url));
+      return String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 7 } }));
+    }) as typeof fetch;
+    assert.equal(await countNewPapers(follow), 7);
+    assert.match(urls.at(-1)!, /rows=0/);
+    assert.match(urls.at(-1)!, /from-pub-date%3A2025-01-02/);
+    globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
+    await assert.rejects(countNewPapers(follow));
+  } finally { globalThis.fetch = original; }
+});
+test("follow storage tolerates empty, malformed and unavailable storage", () => {
+  let value: string | null = null;
+  const storage = { getItem: () => value, setItem: (_key: string, next: string) => { value = next; } };
+  assert.deepEqual(readFollows(storage), []);
+  for (const bad of ["{", "null", "{}", '[null, {}, {"q":3}]']) {
+    value = bad;
+    assert.deepEqual(readFollows(storage), []);
+  }
+  const follow = { q: "crispr", label: "CRISPR", followedAt: "2025-01-01", lastSeenAt: "2025-01-02", seenIds: ["a"] };
+  assert.equal(writeFollows(storage, [follow]), true);
+  assert.deepEqual(readFollows(storage), [follow]);
+  assert.equal(writeFollows(storage, []), true);
+  assert.deepEqual(readFollows(storage), []);
+  const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); } };
+  assert.deepEqual(readFollows(blocked), []);
+  assert.equal(writeFollows(blocked, [follow]), false);
+});
+test("new ids exclude previously seen papers and duplicates", () => {
+  assert.deepEqual(newPaperIds(["a", "b", "b"], ["a"]), ["b"]);
+  assert.deepEqual(newPaperIds([], ["a"]), []);
+  assert.deepEqual(newPaperIds(["a"], []), ["a"]);
+  assert.deepEqual(newPaperIds(["a"], ["a"]), []);
+});
 test("query limits preserve code points and remove lone input surrogates", () => {
   assert.equal(clampQuery(""), "");
   assert.equal(clampQuery("a".repeat(201)), "a".repeat(200));
