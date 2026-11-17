@@ -926,7 +926,7 @@ function App() {
               <article key={current.id} className="tv-slide">
                 <div className="tv-visual-column">
                   <div className="tv-year">{current.year}</div>
-                  <PaperVisual paper={current} sourceLink />
+                  <PaperVisual paper={current} sourceLink onExpand={() => setPaused(true)} />
                 </div>
                 <div>
                   <span
