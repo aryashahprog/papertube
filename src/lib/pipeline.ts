@@ -384,14 +384,17 @@ export function cluster(papers: Paper[], query: string) {
   );
   const labels: string[] = [];
   const uncovered = new Set(papers);
+  const terms = new Map(papers.map(p => [p, new Set(tokens(p))]));
   while (labels.length < 7) {
     const candidates = [...freq].filter(([w, n]) => n >= 2 && !labels.includes(w));
-    const coverage = (w: string) => [...uncovered].filter(p => tokens(p).includes(w)).length;
+    const counts = new Map<string, number>();
+    for (const p of uncovered) for (const w of terms.get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
+    const coverage = (w: string) => counts.get(w) || 0;
     candidates.sort(([a], [b]) => coverage(b) * (b.includes(" ") ? 1.4 : 1) - coverage(a) * (a.includes(" ") ? 1.4 : 1));
     const label = candidates[0]?.[0];
     if (!label || coverage(label) < 2) break;
     labels.push(label);
-    for (const p of uncovered) if (tokens(p).includes(label)) uncovered.delete(p);
+    for (const p of uncovered) if (terms.get(p)!.has(label)) uncovered.delete(p);
   }
   papers.forEach((p) => {
     const words = tokens(p);
