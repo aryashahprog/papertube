@@ -1122,6 +1122,78 @@ body:has(.tv) {
     font-size: 10px;
   }
 }
+@media (max-width: 600px), (pointer: coarse) {
+  .search input {
+    font-size: 16px;
+  }
+  button,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  a {
+    display: inline-flex;
+    align-items: center;
+  }
+  .search button {
+    flex-shrink: 0;
+  }
+  .small {
+    height: 56px;
+  }
+  .eyebrow,
+  .try-label,
+  .chips button,
+  .home-bottom,
+  .stats,
+  .backup,
+  .loading,
+  .byline,
+  .takeaway,
+  .theme-label,
+  .paper-links,
+  .section-title p,
+  .map-top,
+  .map-bottom,
+  .legend,
+  .theme-section h3 small,
+  .row-year,
+  .row-takeaway,
+  footer p,
+  footer > a:last-child,
+  .tv-meta,
+  .tv .theme-label,
+  .tv-control-row {
+    font-size: 12px;
+  }
+  .map-top {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .svg-scroll svg text {
+    font-size: 20px;
+  }
+  .node-halo {
+    stroke: transparent;
+    stroke-width: 44px;
+    vector-effect: non-scaling-stroke;
+    pointer-events: all;
+  }
+  .tv-timeline {
+    overflow-x: auto;
+  }
+  .tv-timeline button {
+    flex: 1 0 44px;
+    height: 44px;
+    border-radius: 0;
+    background: linear-gradient(#33432d, #33432d) center / 100% 4px no-repeat;
+    display: flex;
+    align-items: center;
+  }
+  .tv-timeline button i {
+    height: 4px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
