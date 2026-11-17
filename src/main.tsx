@@ -6,6 +6,7 @@ import {
   RateLimitError,
   publicationYear,
   cluster,
+  finish,
   examples,
   slug,
   clampQuery,
@@ -123,6 +124,7 @@ function App() {
           } catch {}
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
+        result = finish(result.papers, result.source, q, result.total);
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
         if (result.source === "Crossref") {
           result = { ...result, papers: result.papers.map(p => ({ ...p })) };

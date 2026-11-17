@@ -35,6 +35,7 @@ export interface Paper {
   coherent?: boolean;
   workType?: string;
   retracted?: boolean;
+  type?: string;
 }
 export interface Dataset {
   papers: Paper[];
@@ -159,6 +160,7 @@ function oa(w: Raw): Paper {
   const abstract = cleanAbstract(reconstruct(w.abstract_inverted_index));
   return {
     id: w.id,
+    type: w.type,
     doi: w.doi || "",
     title: clean(w.title),
     year: publicationYear(w.publication_year, Number(w.publication_date?.slice(0, 4))),
@@ -191,6 +193,7 @@ function cross(w: Raw): Paper {
   const doi = w.DOI || "";
   return {
     id: "https://doi.org/" + doi,
+    type: w.type,
     doi,
     title: clean(w.title?.[0]),
     year: publicationYear(...[w.published, w["published-online"], w["published-print"], w.issued].map(d => d?.["date-parts"]?.[0]?.[0])),
@@ -424,6 +427,7 @@ export function finish(
     .filter(
       (p) =>
         p.title &&
+        !/^(news|editorial|letter|erratum|paratext|comment|peer-review)$/i.test(p.type || "") &&
         p.year > 0 &&
         !p.retracted &&
         !excludedTypes.has(p.workType || "") &&
@@ -487,9 +491,10 @@ export function finish(
   papers.forEach(
     (p) =>
       (p.rank =
-        (0.4 * p.relevance) / maxR +
+        ((0.4 * p.relevance) / maxR +
         (0.4 * Math.log1p(p.citations)) / maxC +
-        (0.2 * velocity(p)) / maxV),
+          (0.2 * velocity(p)) / maxV) *
+        (source === "Crossref" ? 0.15 + 0.85 * p.citations / (p.citations + 20) : 1)),
   );
   papers.sort((a, b) => b.rank - a.rank);
   coherence(papers, query);
@@ -642,7 +647,7 @@ export async function discover(
         query: searchQuery,
         rows: "100",
         select:
-          "DOI,title,author,published,published-online,published-print,issued,container-title,is-referenced-by-count,abstract,URL,link,score",
+          "DOI,type,title,author,published,published-online,published-print,issued,container-title,is-referenced-by-count,abstract,URL,link,score",
         mailto,
       });
     const d = await request(base);
