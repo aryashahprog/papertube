@@ -50,12 +50,18 @@ export function relativeDate(date: string): string {
   return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
 export interface RecentPaper { id: string; title: string; year: number; url: string }
-const countKey = (follow: Follow) => `pt-count:${follow.q}:${follow.lastSeenAt}`;
+const countKey = (follow: Follow) => `pt-count-v3:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
+export function readCountCache(value: string | null, now = Date.now()): number | undefined {
+  try {
+    const entry = JSON.parse(value || "null");
+    if (entry && Number.isFinite(entry.count) && entry.expiresAt > now) return entry.count;
+  } catch {}
+}
 export function markTopicVisited(previous: Follow, updated: Follow) {
   try {
     cacheStorage.removeItem(countKey(previous));
     cacheStorage.removeItem(countKey(previous) + ":source");
-    cacheStorage.setItem(countKey(updated), "0");
+    cacheStorage.removeItem(countKey(updated));
   } catch {}
 }
 async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[] }> {
@@ -98,14 +104,13 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
 }
 export async function countNewPapers(follow: Follow): Promise<number> {
   try {
-    const cached = cacheStorage.getItem(countKey(follow));
-    if (cached !== null && Number.isFinite(JSON.parse(cached))) return JSON.parse(cached);
+    const cached = readCountCache(cacheStorage.getItem(countKey(follow)));
+    if (cached !== undefined) return cached;
   } catch {}
   const { count } = await recentWorks(follow, false);
-  try { cacheStorage.setItem(countKey(follow), JSON.stringify(count)); } catch {}
+  try { cacheStorage.setItem(countKey(follow), JSON.stringify({ count, expiresAt: Date.now() + 600000 })); } catch {}
   return count;
 }
 export async function recentPapers(follow: Follow): Promise<RecentPaper[]> {
-  try { if (cacheStorage.getItem(countKey(follow)) === "0") return []; } catch {}
   return (await recentWorks(follow, true)).papers;
 }

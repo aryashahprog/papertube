@@ -19,7 +19,22 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+import { readCountCache, safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+test("count caches expire, including zero; recent results always fetch fresh", async () => {
+  assert.equal(readCountCache(JSON.stringify({ count: 0, expiresAt: 100 }), 99), 0);
+  assert.equal(readCountCache(JSON.stringify({ count: 0, expiresAt: 100 }), 100), undefined);
+  assert.equal(readCountCache("0"), undefined);
+  assert.equal(readCountCache("bad"), undefined);
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; return new Response(JSON.stringify({ meta: { count: 0 }, results: [] })); }) as typeof fetch;
+  try {
+    const follow = { q: "test", label: "test", lastSeenAt: "2025-01-01", followedAt: "2025-01-01", seenIds: [] };
+    await recentPapers(follow);
+    await recentPapers(follow);
+    assert.equal(calls, 2);
+  } finally { globalThis.fetch = original; }
+});
 test("throwing browser storage getters do not break reads or follow toggles", () => {
   const host = Object.defineProperty({}, "localStorage", { get() { throw new Error("SecurityError"); } });
   const storage = safeStorage("localStorage", host as typeof globalThis);
