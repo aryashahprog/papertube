@@ -11,7 +11,10 @@ npm run build # TypeScript + dist/
 npm run preview # localhost:4173/papertube/
 npm test
 npm run prebuild:topics # refresh eight featured-topic public snapshots
+npm run enrich:topics # enrich DOI abstracts/types via Semantic Scholar and Europe PMC
 ```
+
+Enrichment does not use OpenAlex. It batches up to 500 DOI identifiers, waits a minute between Semantic Scholar calls, and retries HTTP 429 with backoff and Retry-After support. Europe PMC supplies missing abstracts with one-second spacing. Responses (including misses) are cached in `~/.papertube-enrichment.json`; rerunning resumes after failures without repeating successful requests. Set `PAPERTUBE_ENRICH_CACHE` to choose another cache file, or remove the cache deliberately to refresh it. Snapshots are written only after all requests complete; their original index freshness dates are preserved.
 
 OpenAlex (CC0) is primary: relevance, citation-ranked, and recent pools are merged, deduplicated and ranked with relevance, log citations, and citation velocity. Themes use primary topics, merging tiny groups into Other. Crossref is the fallback: relevance, citation-ranked and proceedings pools, title-keyword TF-IDF clustering, citation counts, and deposited abstracts. Both indexes require a normalized query phrase in the title or abstract. A dominant keyword/topic cluster learned from cited, top-relevance results guides Start here and TV; outliers remain on the map under Other. This is a heuristic, not a guarantee of relevance, and phrase matching can miss synonymous work. Broad one-word topics still have multiple legitimate interpretations.
 
