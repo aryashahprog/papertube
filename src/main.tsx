@@ -774,6 +774,11 @@ function App() {
               ) : (
                 <>
                   No papers mention “{q}”.
+                  {data.suggestion && (
+                    <p>
+                      Did you mean <a href={`?q=${encodeURIComponent(data.suggestion)}`}>{data.suggestion}</a>?
+                    </p>
+                  )}
                   <p>Try a broader topic.</p>
                 </>
               )}

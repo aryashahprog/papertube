@@ -12,6 +12,7 @@ import {
   matchesQuery,
   publicationYear,
   cluster,
+  suggestQuery,
   startHere,
   playThrough,
   examples,
@@ -305,6 +306,56 @@ test("finish sanitizes stored abstracts and stale takeaways without mutating inp
   assert.equal(result.papers[0].abstract, "");
   assert.equal(result.papers[0].takeaway, "");
   assert.equal(paper.takeaway, "An unrelated result.");
+});
+test("candidate vocabulary corrects likely Latin typos without inventing topics", () => {
+  const candidates = [
+    { ...p, title: "Diffusion models for image generation", abstract: "Diffusion models generate images." },
+    { ...p, title: "Conditional diffusion models" },
+    { ...p, title: "Modes of transport" },
+    { ...p, title: "Quantum computing fundamentals" },
+    { ...p, title: "Photosynthesis in plants" },
+  ];
+  for (const [query, expected] of [
+    ["difusion modles", "diffusion models"],
+    ["quantm computing", "quantum computing"],
+    ["photosynthsis", "photosynthesis"],
+  ]) {
+    assert.equal(suggestQuery(candidates, query), expected);
+    assert.equal(finish(candidates, "Crossref", query, 5).suggestion, expected);
+  }
+  for (const query of ["asdkjh qwpoe zzxv", "diffusion models", "Quantum computing", "photosynthesis", "机器学习", "", "???!!!"])
+    assert.equal(suggestQuery(candidates, query), undefined);
+  assert.equal(suggestQuery([], "difusion modles"), undefined);
+  assert.equal(suggestQuery([{ ...p, title: "Diffusion" }, { ...p, title: "Models" }], "difusion modles"), undefined);
+  assert.equal(finish(candidates, "Crossref", "diffusion models", 5).suggestion, undefined);
+});
+test("discovery suggests from existing candidates without extra API calls", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls++;
+    return Response.json({ meta: { count: 1 }, results: [{
+      id: "test", title: "Diffusion models", publication_year: 2020,
+    }] });
+  });
+  const result = await discover("difusion modles");
+  assert.deepEqual(result.papers, []);
+  assert.equal(result.suggestion, "diffusion models");
+  assert.equal(calls, 3);
+});
+test("Crossref suggestions include citation candidates dropped by the relevance prefilter", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    calls++;
+    if (String(url).includes("openalex")) return new Response("", { status: 503 });
+    const cited = new URL(String(url)).searchParams.has("sort");
+    return Response.json({ message: { "total-results": 0, items: cited ? [{
+      DOI: "10/test", title: ["Diffusion models"], published: { "date-parts": [[2020]] },
+    }] : [] } });
+  });
+  const result = await discover("difusion modles");
+  assert.deepEqual(result.papers, []);
+  assert.equal(result.suggestion, "diffusion models");
+  assert.equal(calls, 6);
 });
 test("Unicode queries match accents and unspaced Chinese titles", () => {
   assert.ok(matchesQuery({ ...p, title: "基于机器学习的图像研究" }, "机器学习"));
