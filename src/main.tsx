@@ -5,7 +5,6 @@ import {
   invalidQueryMessage,
   RateLimitError,
   publicationYear,
-  cluster,
   refreshDataset,
   examples,
   slug,
@@ -151,10 +150,6 @@ function App() {
         if (!result) result = await discover(q, update, undefined, controller.signal);
         result = refreshDataset(result, q);
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
-        if (result.source !== "OpenAlex") {
-          result = { ...result, papers: result.papers.map(p => ({ ...p })) };
-          cluster(result.papers, q);
-        }
         if (active) {
           setData(result);
           setLoadedQuery(q);

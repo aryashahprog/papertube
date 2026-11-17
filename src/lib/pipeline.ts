@@ -560,8 +560,11 @@ export function cluster(papers: Paper[], query: string) {
   const tokens = (p: Paper) => {
     const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
     const valid = (w: string) => !ignored.has(w);
-    return [...new Set(words.filter(valid).concat(words.slice(1).flatMap((w, i) =>
-      valid(words[i]) && (valid(w) || w === "loss") ? [words[i] + " " + w] : [])))];
+    return [...new Set(words.flatMap((_, i) => [1, 2, 3].flatMap(size => {
+      const phrase = words.slice(i, i + size);
+      const label = phrase.join(" ");
+      return phrase.length === size && label.length <= 24 && phrase.every((w, j) => valid(w) || (size > 1 && j === size - 1 && w === "loss")) ? [label] : [];
+    })))];
   };
   const freq = new Map<string, number>();
   papers.forEach((p) =>
@@ -575,7 +578,8 @@ export function cluster(papers: Paper[], query: string) {
     const counts = new Map<string, number>();
     for (const p of uncovered) for (const w of terms.get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
     const coverage = (w: string) => counts.get(w) || 0;
-    candidates.sort(([a], [b]) => coverage(b) * (b.includes(" ") ? 1.4 : 1) - coverage(a) * (a.includes(" ") ? 1.4 : 1));
+    const weight = (label: string) => 1 + 0.4 * (label.split(" ").length - 1);
+    candidates.sort(([a], [b]) => coverage(b) * weight(b) - coverage(a) * weight(a));
     const label = candidates[0]?.[0];
     if (!label || coverage(label) < 2) break;
     labels.push(label);
@@ -591,6 +595,73 @@ export function cluster(papers: Paper[], query: string) {
           Math.log(papers.length / (freq.get(a) || 1)),
       )[0];
     p.theme = label ? label[0].toUpperCase() + label.slice(1) : "Other";
+  });
+}
+const themeGeneric = new Set("research technique techniques study studies applications methods method analysis approach approaches model models network networks generative not was were been being which who whose when where while between also both such other different however there all each including used uses present proposed propose show shown show demonstrate demonstrated provide provides compared obtained found significant significantly well two three first second one many much most some several further respectively across within without only".split(" "));
+const themeWord = (word: string) => word.replace(/s$/, "");
+const themeTokens = (text: string, query = "") => {
+  const ignored = new Set([...stop, ...(query.toLowerCase().match(/[a-z]{3,}/g) || []), ...themeGeneric].map(themeWord));
+  return new Set((text.toLowerCase().match(/[a-z]{3,}/g) || [])
+    .map(themeWord).filter(w => !ignored.has(w)));
+};
+function shortTheme(name: string) {
+  const trimmed = name.replace(/\s+(?:and\s+)?(?:research|techniques?|studies|and applications|applications|methods?|analysis)$/gi, "")
+    .split(/\s+(?:and|&)\s+|[,;:]/i)[0].trim();
+  const words = trimmed.split(/\s+/);
+  if (words.length > 3 || trimmed.length > 24) return "";
+  while (words.length && /^(and|of|in|for|with|the|to|augmented|based|guided|assisted)$/i.test(words.at(-1)!)) words.pop();
+  return words.map(w => /^[A-Z\d-]+$/.test(w) ? w : w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+}
+function consensusTopics(papers: Paper[]) {
+  const choices = (p: Paper) => [...new Set(p.topics?.slice(0, 3).filter(Boolean) || [])];
+  const counts = new Map<string, number>();
+  papers.forEach(p => choices(p).forEach(t => counts.set(t, (counts.get(t) || 0) + 1)));
+  papers.forEach(p => {
+    p.theme = choices(p).sort((a, b) => counts.get(b)! - counts.get(a)!)[0] || p.theme;
+  });
+}
+function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
+  if (source !== "OpenAlex") cluster(papers, query);
+  const groups = new Map<string, Paper[]>();
+  papers.forEach(p => groups.set(p.theme, [...(groups.get(p.theme) || []), p]));
+  for (const [name, members] of groups) {
+    if (name === "Other") continue;
+    let label = shortTheme(name);
+    const words = themeTokens(label);
+    const fit = members.filter(p => {
+      const text = themeTokens(p.title + " " + p.abstract);
+      return words.size && [...words].some(w => text.has(w));
+    }).length / members.length;
+    if (!label || fit < 0.3) {
+      const copies = members.map(p => ({ ...p }));
+      cluster(copies, "");
+      const counts = new Map<string, number>();
+      copies.filter(p => p.theme !== "Other").forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+      label = shortTheme([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || "Other");
+    }
+    members.forEach(p => p.theme = label || "Other");
+  }
+  const counts = new Map<string, number>();
+  papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+  const keep = [...counts].filter(([name, n]) => name !== "Other" && n >= 2)
+    .sort((a, b) => b[1] - a[1]).slice(0, 7).map(([name]) => name);
+  const vectors = new Map(papers.map(p => [p, themeTokens(p.title + " " + p.abstract, query)]));
+  const profiles = keep.map(name => {
+    const members = papers.filter(p => p.theme === name && p.coherent !== false);
+    const frequency = new Map<string, number>();
+    members.forEach(p => vectors.get(p)!.forEach(w => frequency.set(w, (frequency.get(w) || 0) + 1)));
+    return { name, members: members.length, frequency };
+  });
+  papers.forEach(p => {
+    if (keep.includes(p.theme) && p.coherent !== false) return;
+    const matches = profiles.map(profile => {
+      const shared = [...vectors.get(p)!].filter(w => (profile.frequency.get(w) || 0) >= 2);
+      const score = shared.length < 2 ? 0 : shared.reduce((sum, w) =>
+        sum + (profile.frequency.get(w) || 0) / Math.max(1, profile.members), 0) / Math.sqrt(Math.max(1, vectors.get(p)!.size));
+      return { name: profile.name, score };
+    }).sort((a, b) => b.score - a.score);
+    p.theme = matches[0]?.score > 0 ? matches[0].name : "Other";
+    if (p.theme !== "Other") p.coherent = true;
   });
 }
 export function finish(
@@ -684,18 +755,9 @@ export function finish(
         (source === "Crossref" ? 0.15 + 0.85 * p.citations / (p.citations + 20) : 1)),
   );
   papers.sort((a, b) => b.rank - a.rank);
+  if (source === "OpenAlex") consensusTopics(papers);
   coherence(papers, query);
-  if (source !== "OpenAlex") cluster(papers, query);
-  const counts = new Map<string, number>();
-  papers.forEach((p) => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
-  const keep = [...counts]
-    .filter(([n, c]) => n !== "Other" && c >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 7)
-    .map(([n]) => n);
-  papers.forEach((p) => {
-    if (!keep.includes(p.theme) || (source === "OpenAlex" && p.coherent === false)) p.theme = "Other";
-  });
+  mapThemes(papers, source, query);
   const suggestion = papers.length ? undefined : suggestQuery(candidates, query);
   return { papers, source, total, fetchedAt: new Date().toISOString(),
     ...(suggestion ? { suggestion } : {}),
