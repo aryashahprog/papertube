@@ -220,7 +220,7 @@ function queryTokens(query: string) {
   const ignored = new Set(
     "a an the and or of to in on for with by from using via as at is are this that into its it".split(" "),
   );
-  return normalized(query)
+  return normalized(contentQuery(query))
     .split(" ")
     .filter((t) => t && !ignored.has(t));
 }
@@ -247,15 +247,17 @@ function contentQuery(query: string) {
 export const invalidQueryMessage =
   "Type a topic in words — like “sleep and memory”.";
 export function matchesQuery(p: Paper, query: string) {
-  const content = contentQuery(query);
-  const phrase = normalized(content);
-  if (!phrase) return false;
-  const terms = [...new Set(phrase.split(" "))];
+  const terms = [...new Set(queryTokens(query))];
+  if (!terms.length) return false;
   const texts = [p.title, p.abstract].map(normalized);
   if (texts.some((text) => contains(text, normalized(query)))) return true;
-  if (!isContentQuery(query)) return false;
-  return terms.filter((term) => contains(texts.join(" "), term)).length >=
-    (terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.6));
+  const required = isContentQuery(query) && terms.length > 3
+    ? Math.ceil(terms.length * 0.6)
+    : terms.length;
+  const topics = normalized((p.topics || []).join(" "));
+  return terms.filter((term) => contains(texts.join(" "), term)).length >= required ||
+    (terms.some((term) => contains(texts[0], term)) &&
+      terms.every((term) => contains(topics, term)));
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -331,7 +333,7 @@ export function startHere(papers: Paper[], query?: string) {
   const terms = query === undefined ? [] : queryTokens(query);
   return papers.filter((p) =>
     p.coherent !== false &&
-    (query === undefined || terms.some((t) => normalized(p.title).split(" ").includes(t))),
+    (query === undefined || terms.some((t) => contains(normalized(p.title), t))),
   ).slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {

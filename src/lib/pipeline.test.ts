@@ -10,7 +10,6 @@ import {
   matchesQuery,
   startHere,
   playThrough,
-  matchesQuery,
   examples,
   invalidQueryMessage,
   type Dataset,
@@ -64,7 +63,7 @@ test("questions match content across title and abstract without accepting unrela
   }, query));
   assert.ok(!matchesQuery({ ...p, title: "Important papers about marine biology" }, query));
   assert.ok(matchesQuery({ ...p, title: "Sleep memory consolidation" }, "what are the best papers about sleep and memory"));
-  assert.ok(!matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
 });
 test("long query coverage is independent of capitalization", () => {
   const relevant = { ...p, title: "Graph network applications", abstract: "Neural methods for drug discovery" };
@@ -73,7 +72,7 @@ test("long query coverage is independent of capitalization", () => {
     assert.ok(!matchesQuery({ ...p, title: "Graph drawing algorithms" }, query));
   }
   for (const query of ["graph neural network", "Graph Neural Network"])
-    assert.ok(!matchesQuery(relevant, query));
+    assert.ok(matchesQuery(relevant, query));
 });
 test("short topic phrases retain meaningful stop words", () => {
   assert.ok(matchesQuery({ ...p, title: "Large language model capabilities" }, "large language models"));
@@ -101,19 +100,32 @@ test("rewritten questions retain verbatim matches and require all short content 
     assert.ok(matchesQuery({ ...p, title: "Motivation", abstract: "A theory" }, "a theory of human motivation"));
     assert.ok(!matchesQuery({ ...p, title: "Sleep alone" }, "sleep and memory?"));
     assert.ok(!matchesQuery({ ...p, title: "Unrelated work" }, "sleep and memory?"));
-    assert.ok(!matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
+    assert.ok(matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
     assert.ok(!matchesQuery({ ...p, title: "Quantum studies of error correction" }, "quantum error correction theory"));
   } finally {
     globalThis.fetch = original;
   }
 });
-test("featured topics retain their previous exact-phrase matches", () => {
+test("featured topics retain main's any-order token and topic matches", () => {
   const previous = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).map((w) => w.length > 4 ? w.replace(/s$/, "") : w).join(" ");
   for (const topic of examples) {
     const data: Dataset = JSON.parse(readFileSync(new URL(`../../public/data/${topic.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.json`, import.meta.url), "utf8"));
-    for (const paper of data.papers)
-      assert.equal(matchesQuery(paper, topic), [paper.title, paper.abstract].some((text) => (" " + previous(text) + " ").includes(" " + previous(topic) + " ")), topic);
+    const terms = previous(topic).split(" ");
+    for (const paper of data.papers) {
+      const text = new Set(previous(paper.title + " " + paper.abstract).split(" "));
+      const title = new Set(previous(paper.title).split(" "));
+      const topics = new Set(previous((paper.topics || []).join(" ")).split(" "));
+      assert.equal(matchesQuery(paper, topic), terms.every((term) => text.has(term)) ||
+        (terms.some((term) => title.has(term)) && terms.every((term) => topics.has(term))), topic);
+    }
   }
+});
+test("Unicode token and topic matching also keeps unspaced titles in Start here", () => {
+  const chinese = { ...p, title: "基于图像的方法", topics: ["机器学习与图像分析"] };
+  assert.ok(matchesQuery(chinese, "机器学习 图像"));
+  assert.ok(!matchesQuery({ ...chinese, topics: [] }, "机器学习 图像"));
+  assert.deepEqual(startHere([chinese], "机器学习 图像"), [chinese]);
+  assert.ok(matchesQuery({ ...p, title: "La protéine", abstract: "Folding mechanisms" }, "proteine folding"));
 });
 test("punctuation-only queries reject before contacting either index", async () => {
   const original = globalThis.fetch;
