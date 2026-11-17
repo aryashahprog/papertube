@@ -93,6 +93,12 @@ test("JATS, encoded tags, copyright and unmatched parentheses are cleaned", () =
     "A finding with a stray parenthesis.",
   );
   assert.equal(cleanAbstract(""), "");
+  assert.equal(
+    takeaway(
+      "Horizontal gene transfer in bacteria is important for the spread of antibiotic resistance. Here we show that CRISPR interference prevents conjugation and plasmid transformation in S. epidermidis.",
+    ),
+    "Here we show that CRISPR interference prevents conjugation and plasmid transformation in S. epidermidis.",
+  );
 });
 test("phrase matching and dominant topical coherence apply to both sources", () => {
   const make = (

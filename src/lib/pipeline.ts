@@ -113,6 +113,7 @@ export function takeaway(abstract: string) {
   const sentences =
     cleanAbstract(abstract)
       .replace(/\b(et al|e\.g|i\.e|Dr|Prof)\./gi, "$1\u2024")
+      .replace(/\b([A-Z])\.(?=\s+[a-z])/g, "$1\u2024")
       .match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [];
   const ranked = sentences
     .map((s, i) => ({
