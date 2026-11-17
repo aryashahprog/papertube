@@ -1,3 +1,5 @@
+import { oa, cross } from "./pipeline";
+
 export interface Follow {
   q: string;
   label: string;
@@ -47,7 +49,7 @@ export function relativeDate(date: string): string {
   const days = Math.max(0, Math.floor((Date.now() - Date.parse(date)) / 86400000));
   return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
-export interface RecentPaper { id: string; title: string; year: number; url: string; date?: string }
+export interface RecentPaper { id: string; title: string; year: number; url: string; date?: string; citations?: number; venue?: string; takeaway?: string }
 export function comparisonDate(date: string): string {
   if (/^\d{4}$/.test(date)) return date + "-12-31";
   if (/^\d{4}-\d{2}$/.test(date)) {
@@ -101,7 +103,7 @@ export function markTopicVisited(previous: Follow, updated: Follow) {
     cacheStorage.removeItem(countKey(updated));
   } catch {}
 }
-async function recentWorks(follow: Follow): Promise<{ papers: RecentPaper[]; searchUrl: string }> {
+export async function recentWorks(follow: Follow, details = false): Promise<{ papers: RecentPaper[]; searchUrl: string }> {
   const date = follow.lastSeenAt.slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
   async function request(url: string) {
@@ -121,7 +123,7 @@ async function recentWorks(follow: Follow): Promise<{ papers: RecentPaper[]; sea
     if (!Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
     return { searchUrl: "https://openalex.org/works?" + new URLSearchParams({ filter: `title.search:${follow.q.replace(/[,:"|]/g, " ")},publication_date:${date}-${today}` }), papers: cleanRecentPapers(data.results.map((w: any) => ({
-      id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
+      ...(details ? oa(w) : {}), id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
       date: w.publication_date,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
     })), date, today) };
@@ -133,7 +135,7 @@ async function recentWorks(follow: Follow): Promise<{ papers: RecentPaper[]; sea
     if (!Array.isArray(data.message?.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
     return { searchUrl: "https://search.crossref.org/search/works?" + new URLSearchParams({ q: follow.q, from_ui: "yes" }), papers: cleanRecentPapers(data.message.items.map((w: any) => ({
-      id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
+      ...(details ? cross(w) : {}), id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
       date: w.published?.["date-parts"]?.[0]?.length >= 1 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
