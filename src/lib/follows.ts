@@ -71,11 +71,23 @@ export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPa
   const seen = new Set(seenIds);
   return papers.filter((p) => !seen.has(p.id));
 }
-export function unreadTotal(total: number, papers: RecentPaper[], follow: Follow): number {
-  const overlap = new Set(papers.filter((p) => follow.seenIds.includes(p.id)).map((p) => p.id));
-  return Math.max(unreadPapers(papers, follow.seenIds).length, total - overlap.size);
+const titleWords = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+const queryFillers = new Set("a an the of in on for and or to with what is are how does do research about latest recent papers".split(" "));
+const topicVariants = [["large language models", "llm", "llms"], ["retrieval augmented generation", "rag"], ["crispr", "clustered regularly interspaced short palindromic repeats"]];
+export function titleMatchesTopic(title: string, query: string): boolean {
+  const words = titleWords(title);
+  const stem = (word: string) => word.length > 3 ? word.replace(/s$/, "") : word;
+  const terms = titleWords(query).filter((word) => !queryFillers.has(word));
+  if (!terms.length) return false;
+  const includes = (candidate: string[]) => candidate.every((term) => words.some((word) => stem(word) === stem(term)));
+  if (includes(terms)) return true;
+  const normalized = terms.map(stem).join(" ");
+  return topicVariants.some((variants) => variants.some((variant) => titleWords(variant).map(stem).join(" ") === normalized) && variants.some((variant) => includes(titleWords(variant))));
 }
-const countKey = (follow: Follow) => `pt-count-v4:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
+export function digestPapers(papers: RecentPaper[], follow: Follow): RecentPaper[] {
+  return unreadPapers(papers, follow.seenIds).filter((paper) => titleMatchesTopic(paper.title, follow.q)).slice(0, 5);
+}
+const countKey = (follow: Follow) => `pt-count-v5:${follow.q}:${follow.lastSeenAt}`;
 export function readCountCache(value: string | null, now = Date.now()): number | undefined {
   try {
     const entry = JSON.parse(value || "null");
@@ -89,7 +101,7 @@ export function markTopicVisited(previous: Follow, updated: Follow) {
     cacheStorage.removeItem(countKey(updated));
   } catch {}
 }
-async function recentWorks(follow: Follow, items: boolean): Promise<{ count: number; papers: RecentPaper[]; searchUrl: string }> {
+async function recentWorks(follow: Follow): Promise<{ papers: RecentPaper[]; searchUrl: string }> {
   const date = follow.lastSeenAt.slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
   async function request(url: string) {
@@ -101,35 +113,31 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
   let source: string | null = null;
   try { source = cacheStorage.getItem(countKey(follow) + ":source"); } catch {}
   try {
-    if (items && source === "Crossref") throw new Error("Use counted source");
+    if (source === "Crossref") throw new Error("Use counted source");
     const searchUrl = "https://api.openalex.org/works?" + new URLSearchParams({
-      ...params, search: follow.q, filter: `from_publication_date:${date},to_publication_date:${today}`, "per-page": items ? "8" : "1", sort: "cited_by_count:desc",
+      ...params, filter: `title_and_abstract.search:${follow.q.replace(/[,:"|]/g, " ")},from_publication_date:${date},to_publication_date:${today}`, "per-page": "50", sort: "cited_by_count:desc",
     });
     const data = await request(searchUrl);
-    const count = data.meta?.count;
-    if (!Number.isFinite(count)) throw new Error("Invalid count");
-    if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
+    if (!Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
-    return { count, searchUrl: "https://openalex.org/works?" + new URLSearchParams({ search: follow.q, filter: `publication_date:${date}-${today}` }), papers: items ? cleanRecentPapers(data.results.map((w: any) => ({
+    return { searchUrl: "https://openalex.org/works?" + new URLSearchParams({ filter: `title.search:${follow.q.replace(/[,:"|]/g, " ")},publication_date:${date}-${today}` }), papers: cleanRecentPapers(data.results.map((w: any) => ({
       id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
       date: w.publication_date,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
-    })), date, today) : [] };
+    })), date, today) };
   } catch {
     const searchUrl = "https://api.crossref.org/works?" + new URLSearchParams({
-      ...params, query: follow.q, filter: `from-pub-date:${date},until-pub-date:${today}`, rows: items ? "8" : "0", sort: "is-referenced-by-count", order: "desc",
+      ...params, "query.bibliographic": follow.q, filter: `from-pub-date:${date},until-pub-date:${today}`, rows: "50", sort: "is-referenced-by-count", order: "desc",
     });
     const data = await request(searchUrl);
-    const count = data.message?.["total-results"];
-    if (!Number.isFinite(count)) throw new Error("Invalid count");
-    if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
+    if (!Array.isArray(data.message?.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
-    return { count, searchUrl: "https://search.crossref.org/search/works?" + new URLSearchParams({ q: follow.q, from_ui: "yes" }), papers: items ? cleanRecentPapers(data.message.items.map((w: any) => ({
+    return { searchUrl: "https://search.crossref.org/search/works?" + new URLSearchParams({ q: follow.q, from_ui: "yes" }), papers: cleanRecentPapers(data.message.items.map((w: any) => ({
       id: w.DOI ? "https://doi.org/" + w.DOI.toLowerCase() : w.URL, title: w.title?.[0],
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
       date: w.published?.["date-parts"]?.[0]?.length >= 1 ? w.published["date-parts"][0].map((n: number, i: number) => i ? String(n).padStart(2, "0") : String(n)).join("-") : undefined,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
-    })), date, today) : [] };
+    })), date, today) };
   }
 }
 export async function countNewPapers(follow: Follow): Promise<number> {
@@ -137,8 +145,7 @@ export async function countNewPapers(follow: Follow): Promise<number> {
     const cached = readCountCache(cacheStorage.getItem(countKey(follow)));
     if (cached !== undefined) return cached;
   } catch {}
-  const batch = await recentWorks(follow, true);
-  const count = unreadTotal(batch.count, batch.papers, follow);
+  const count = (await recentBatch(follow)).papers.length;
   try { cacheStorage.setItem(countKey(follow), JSON.stringify({ count, expiresAt: Date.now() + 600000 })); } catch {}
   return count;
 }
@@ -146,8 +153,9 @@ export async function recentPapers(follow: Follow): Promise<RecentPaper[]> {
   return (await recentBatch(follow)).papers;
 }
 export async function recentBatch(follow: Follow) {
-  const batch = await recentWorks(follow, true);
-  return { papers: unreadPapers(batch.papers, follow.seenIds), total: unreadTotal(batch.count, batch.papers, follow), searchUrl: batch.searchUrl };
+  const batch = await recentWorks(follow);
+  const papers = digestPapers(batch.papers, follow);
+  return { papers, total: papers.length, searchUrl: batch.searchUrl };
 }
 export async function seedFollow(follow: Follow): Promise<Follow> {
   try {

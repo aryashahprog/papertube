@@ -21,13 +21,13 @@ import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
 import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
-  "#beff7a",
-  "#a5a0ff",
-  "#ffbd8a",
-  "#7bded8",
-  "#ed9aca",
-  "#f2db80",
-  "#8eb9ff",
+  "#bed6ae",
+  "#a3c09a",
+  "#8bad82",
+  "#cfdfc3",
+  "#739b70",
+  "#b2c7a8",
+  "#98b892",
   "#a8b6aa",
 ];
 const compact = (n: number) =>
@@ -322,7 +322,7 @@ function App() {
           </a>
         )}
         <a href={p.url} target="_blank" rel="noreferrer">
-          Read paper ↗
+          Paper ↗
         </a>
       </div>
     );
@@ -334,7 +334,6 @@ function App() {
           paper<span>tube</span>
           <i />
         </a>
-        <span className="nav-note">A little clarity in a world of papers.</span>
         <a
           className="github"
           href="https://github.com/aryashahprog/papertube"
@@ -346,13 +345,6 @@ function App() {
       </nav>
       {!q ? (
         <main className="home">
-          <div className="eyebrow">FOLLOW YOUR CURIOSITY</div>
-          <h1>
-            The must-read papers on any topic.
-          </h1>
-          <p className="intro">
-            Follow topics. Come back for new papers, mapped by theme.
-          </p>
           <form className="search huge" onSubmit={search}>
             <span>⌕</span>
             <input
@@ -361,32 +353,29 @@ function App() {
               maxLength={200}
               value={input}
               onChange={(e) => setInput(clampQuery(e.target.value))}
-              placeholder="A question. A field. A rabbit hole."
+              placeholder="Search a topic"
             />
             <kbd>/</kbd>
             <button aria-label="Search">↗</button>
           </form>
-          {!follows.length && <p className="follow-hint">Follow topics to track papers</p>}
-          {!!follows.length && <section className="your-topics" aria-label="Your topics">
-            <h2 className="try-label">YOUR TOPICS</h2>
-            <div className="chips">{[...follows].sort((a, b) => Number((counts[b.q] || 0) > 0) - Number((counts[a.q] || 0) > 0)).map((f) => <button key={f.q} onClick={() => navigate({ q: f.q })}>
-              {f.label} <span>↗</span>
-              {counts[f.q] !== undefined && <small title={`Since ${relativeDate(f.lastSeenAt)}`}>{counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</small>}
+          <section className="topic-inbox" aria-label="Your topics">
+            <div className="inbox-heading"><h1>Your topics</h1><span>New papers</span></div>
+            {!follows.length && <p className="follow-hint">Follow a topic. Find new papers here.</p>}
+            <div className="inbox-list">{[...follows].sort((a, b) => Number((counts[b.q] || 0) > 0) - Number((counts[a.q] || 0) > 0)).map((f) => <button className="inbox-row" key={f.q} onClick={() => navigate({ q: f.q })}>
+              <span className="inbox-topic">{f.label}<small>Checked {relativeDate(f.lastSeenAt)}</small></span>
+              <span className={counts[f.q] ? "unread-count" : "read-count"}>{counts[f.q] === undefined ? "—" : counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</span><span className="inbox-arrow">↗</span>
             </button>)}</div>
-          </section>}
-          <div className="try-label">A FEW GOOD RABBIT HOLES</div>
-          <div className="chips">
+          </section>
+          <section className="featured-topics" aria-label="Explore topics">
+          <h2>Explore</h2>
+          <div className="featured-grid">
             {examples.map((t) => (
               <button key={t} onClick={() => navigate({ q: t })}>
                 {t} <span>↗</span>
               </button>
             ))}
           </div>
-          <div className="home-bottom">
-            <span>01 / FIND THE PAPERS</span>
-            <span>02 / CONNECT THE IDEAS</span>
-            <span>03 / WATCH THEM UNFOLD</span>
-          </div>
+          </section>
         </main>
       ) : (
         <main className="results">
@@ -403,13 +392,12 @@ function App() {
           </form>
           <div className="result-heading">
             <div>
-              <div className="eyebrow">YOUR FIELD GUIDE TO</div>
               <h1>{q}</h1>
               {!error && (
                 <p className="stats">
                   {data
                     ? `${papers.length} papers · ${themes.length} themes${papers.length ? ` · ${min}–${max}` : ""}`
-                    : "Connecting the literature…"}
+                    : "Loading…"}
                 </p>
               )}
             </div>
@@ -496,24 +484,23 @@ function App() {
           </div>
           {followed && recentTotal > 0 && <section className="new-papers" aria-label="New since your last visit">
             <h2>New since your last visit</h2>
-            <p>Top {recent.length} of {recentTotal} · <a href={recentUrl} target="_blank" rel="noreferrer">See all ↗</a></p>
+            <p><a href={recentUrl} target="_blank" rel="noreferrer">See all ↗</a></p>
             <div className="new-feed">{recent.map((p) =>
               <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.date || p.year} ↗</small></a>)}</div>
           </section>}
           {data?.source === "Crossref" && (
             <p className="backup">
-              ↳ Backup index in use: Crossref. Themes are title-keyword
-              clusters; abstract coverage varies.
+              Crossref
             </p>
           )}
           {data?.source === "Europe PMC" && (
             <p className="backup">
-              ↳ Research index: Europe PMC. Themes are title-keyword clusters.
+              Europe PMC
             </p>
           )}
           {data && (
             <p className="backup">
-              Index snapshot ·{" "}
+              Updated ·{" "}
               {new Date(data.fetchedAt).toLocaleDateString("en", {
                 month: "short",
                 day: "numeric",
@@ -523,7 +510,7 @@ function App() {
           )}
           {hot && (
             <p className="backup">
-              Recent papers since {cutoff()} (publication-year precision).
+              Since {cutoff()}
             </p>
           )}
           {loading && (
@@ -552,7 +539,6 @@ function App() {
                   <h2>
                     <span>01</span> Start here
                   </h2>
-                  <p>Five doors into the subject. Start with any one.</p>
                 </div>
                 <div className="start-grid">
                   {startHere(papers, q).map((p, i) => (
@@ -579,7 +565,7 @@ function App() {
                         <p className="takeaway">{p.takeaway}</p>
                       ) : (
                         <p className="byline citation-summary">
-                          Cited {compact(p.citations)} times · {p.year}
+                          {compact(p.citations)} citations · {p.year}
                           {p.venue ? ` · ${p.venue}` : ""}
                         </p>
                       )}
@@ -601,14 +587,13 @@ function App() {
               <section className="map-section">
                 <div className="section-title">
                   <h2>
-                    <span>02</span> The idea map
+                    <span>02</span> Idea map
                   </h2>
-                  <p>Every paper, in context. Follow a thread.</p>
                 </div>
                 <div className="map-canvas">
                   <div className="map-top">
                     <span>ANATOMY OF A FIELD</span>
-                    <span>Node size = citations · Lines = references</span>
+                    <span>Size: citations · Lines: references</span>
                   </div>
                   <div className="legend">
                     {themes.map((t, i) => (
@@ -729,7 +714,7 @@ function App() {
                       {hover.takeaway && <p>{hover.takeaway}</p>}
                       <small>
                         {hover.year} · {compact(hover.citations)} citations ·
-                        Click to explore
+                        Details ↗
                       </small>
                     </div>
                   )}
@@ -742,9 +727,8 @@ function App() {
               <section className="themes">
                 <div className="section-title">
                   <h2>
-                    <span>03</span> Follow a theme
+                    <span>03</span> Themes
                   </h2>
-                  <p>The big picture, broken into smaller ideas.</p>
                 </div>
                 {themes.map((t, i) => (
                   <div className="theme-section" key={t}>
@@ -785,11 +769,11 @@ function App() {
           {data && !papers.length && !loading && (
             <div className="empty">
               {hot ? (
-                <>No papers found in this recent window. Try a broader topic or switch to Canon.</>
+                <>No recent papers. Try Canon.</>
               ) : (
                 <>
                   No papers mention “{q}”.
-                  <p>Check the spelling, or try fewer, broader words.</p>
+                  <p>Try a broader topic.</p>
                 </>
               )}
               <div className="chips">
@@ -809,14 +793,11 @@ function App() {
           <i />
         </a>
         <p>
-          {data?.source === "Europe PMC" ? "Data from Europe PMC" : "Data from OpenAlex (CC0)"}
-          {data?.source === "Crossref" ? " · Backup results from Crossref" : ""}
-          .<br />
-          Takeaways are the key sentence from each abstract. Always read the
-          paper.
+          {data?.source === "Europe PMC" ? "Europe PMC" : "OpenAlex · CC0"}
+          {data?.source === "Crossref" ? " · Crossref" : ""}
         </p>
         <a href="https://github.com/aryashahprog/papertube">
-          Made for the curious ↗
+          Source ↗
         </a>
       </footer>
       {selected && !playing && (
@@ -863,7 +844,7 @@ function App() {
             <h3>Abstract</h3>
             <p className="abstract">
               {selected.abstract ||
-                "No abstract available from this index. Follow the paper link to read more."}
+                "No abstract available."}
             </p>
           </aside>
         </div>
@@ -904,8 +885,7 @@ function App() {
                     <p>{current.takeaway}</p>
                   ) : (
                     <p className="tv-no-abstract">
-                      No abstract excerpt available. Follow the paper to explore
-                      the findings.
+                      No abstract available.
                     </p>
                   )}
                   <div className="tv-meta">
@@ -940,10 +920,6 @@ function App() {
                 <div className="tv-control-row">
                   <span>
                     {String(slide + 1).padStart(2, "0")} / {tour.length}{" "}
-                    <span className="desktop">
-                      {" "}
-                      · A chronological walk through the key papers
-                    </span>
                   </span>
                   <div>
                     <button
@@ -970,8 +946,8 @@ function App() {
           ) : (
             <div className="tv-wait">
               {loading
-                ? "Finding the story…"
-                : error || "No papers in this selection."}
+                ? "Loading…"
+                : error || "No papers."}
             </div>
           )}
         </div>

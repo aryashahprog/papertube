@@ -13,7 +13,7 @@ page.on("pageerror", (e) => errors.push(e.message));
 const base = "http://localhost:4173/papertube/";
 await page.goto(base);
 await page
-  .getByRole("heading", { name: "The must-read papers on any topic." })
+  .getByRole("heading", { name: "Your topics", exact: true })
   .waitFor();
 await page.screenshot({ path: out + "/home.png", fullPage: true });
 await page.keyboard.press("/");
@@ -37,9 +37,10 @@ await page.route("https://api.openalex.org/**", (r) => {
   countRequests++;
   recentQueries.push(new URL(r.request().url()));
   if (failRecent) return r.fulfill({ status: 503, body: "unavailable" });
-  return r.fulfill({ json: { meta: { count: 13 }, results: Array.from({ length: 8 }, (_, i) => i + 1).map((n) => ({
-    id: `https://openalex.org/recent-${n}`, title: `Recent CRISPR finding ${n}`,
-    publication_year: new Date().getFullYear(), publication_date: new Date().toISOString().slice(0, 10), doi: `https://doi.org/10.1234/recent-${n}`,
+  const titles = ["Immune gene expression in pancreatic cancer", "CRISPR-Cas9 editing improves drought resistance in rice", "Benchmarking CRISPR base editors in human cells", "CRISPR screens identify targets in glioblastoma", "Delivery of CRISPR ribonucleoproteins using lipid nanoparticles", "High-fidelity CRISPR genome editing in stem cells", "CRISPR gene drives for mosquito control", "Language development in children"];
+  return r.fulfill({ json: { meta: { count: 4830 }, results: titles.map((title, i) => ({
+    id: `https://openalex.org/recent-${i}`, title,
+    publication_year: new Date().getFullYear(), publication_date: new Date().toISOString().slice(0, 10), doi: `https://doi.org/10.1234/recent-${i}`,
   })) } });
 });
 await page.getByRole("button", { name: "Follow topic", exact: true }).click();
@@ -47,11 +48,11 @@ await page.getByRole("button", { name: "Following ✓", exact: true }).waitFor()
 await page.waitForFunction(() => Array.isArray(JSON.parse(localStorage.getItem("pt-follows")!)[0]?.seenPapers));
 assert.equal(await page.locator(".new-papers").count(), 0);
 await page.goto(base);
-await page.getByRole("heading", { name: "YOUR TOPICS", exact: true }).waitFor();
-await page.getByText("13 new", { exact: true }).waitFor();
+await page.getByRole("heading", { name: "Your topics", exact: true }).waitFor();
+await page.getByText("5 new", { exact: true }).waitFor();
 await page.screenshot({ path: out + "/home-followed.png", fullPage: true });
 await page.reload();
-await page.getByText("13 new", { exact: true }).waitFor();
+await page.getByText("5 new", { exact: true }).waitFor();
 assert.equal(countRequests, 1);
 await page.evaluate(() => {
   const follows = JSON.parse(localStorage.getItem("pt-follows")!);
@@ -69,19 +70,22 @@ failRecent = false;
 await page.unroute("https://api.crossref.org/**");
 await page.goto(base + "?q=CRISPR");
 await page.getByRole("heading", { name: "New since your last visit" }).waitFor();
-assert.equal(await page.locator(".new-feed a").count(), 8);
-await page.getByText("Top 8 of 13", { exact: false }).waitFor();
+assert.equal(await page.locator(".new-feed a").count(), 5);
+assert.equal(await page.getByText(/Top 8 of/).count(), 0);
+assert.doesNotMatch(await page.locator(".new-feed").innerText(), /Immune gene expression|Language development/);
 assert.match(await page.getByRole("link", { name: "See all ↗" }).getAttribute("href") || "", /^https:\/\/openalex\.org\/works\?.*publication_date/);
 assert.equal(recentQueries[0].searchParams.get("search"), recentQueries.at(-1)!.searchParams.get("search"));
 assert.equal(recentQueries[0].searchParams.get("filter"), recentQueries.at(-1)!.searchParams.get("filter"));
-assert.equal(recentQueries.at(-1)!.searchParams.get("per-page"), "8");
+assert.equal(recentQueries.at(-1)!.searchParams.get("per-page"), "50");
+assert.match(recentQueries.at(-1)!.searchParams.get("filter")!, /title_and_abstract.search:crispr/i);
 await page.setViewportSize({ width: 1280, height: 1400 });
 await page.screenshot({ path: out + "/results-followed-new.png" });
 await page.setViewportSize({ width: 1280, height: 1000 });
 await page.goto(base);
-await page.getByText("5 new", { exact: true }).waitFor();
+await page.getByText("1 new", { exact: true }).waitFor();
 assert.equal(countRequests, 4);
 await page.goto(base + "?q=CRISPR");
+await page.waitForFunction(() => JSON.parse(localStorage.getItem("pt-follows")!)[0].seenIds.length === 6);
 await page.reload();
 await page.locator(".start-card").first().waitFor();
 await page.waitForFunction(() => !document.querySelector(".loading"));
@@ -90,7 +94,7 @@ await page.getByRole("button", { name: "Following ✓", exact: true }).click();
 await page.getByRole("button", { name: "Follow topic", exact: true }).waitFor();
 assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("pt-follows")!).length), 0);
 assert.equal(await page.locator(".new-pill").count(), 0);
-console.log("PASS: follow seeding, full total beyond eight, Top 8 of 13 and See all, matching date bounds, failed fetch preserves visit, same-day seen exclusion and unfollow");
+console.log("PASS: on-topic five-paper digest matches badge, ignores raw 4830 total and unrelated titles, matching date bounds, failed fetch preserves visit, seen exclusion and unfollow");
 await page.screenshot({ path: out + "/results.png", fullPage: true });
 await page.locator('svg g[role="button"]').last().hover();
 await page.getByRole("tooltip").waitFor();
@@ -149,7 +153,7 @@ await page.route("**/data/crispr.json", (r) =>
 );
 await page.goto(base + "?q=CRISPR");
 await page.locator(".start-card").first().waitFor({ timeout: 90000 });
-await page.getByText(/Backup index in use/).waitFor();
+await page.locator(".backup").filter({ hasText: /^Crossref$/ }).waitFor();
 console.log(
   "PASS: fixture CRISPR fallback, home shortcut, results, map hover/details, TV controls, 390px mobile; screenshots saved to " +
     out,

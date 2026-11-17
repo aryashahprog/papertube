@@ -1,6 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Instrument+Serif:ital@0;1&display=swap");
 :root {
-  font-family: "DM Sans", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Inter, system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.47;
   color: #222b26;
   background: #f6f4ee;
   font-synthesis: none;
@@ -106,7 +107,7 @@ nav {
   padding: 87px 24px 0;
 }
 .home h1 {
-  font-family: "Instrument Serif", Georgia, serif;
+  font-family: inherit;
   font-weight: 400;
   font-size: 82px;
   line-height: 1.02;
@@ -163,9 +164,8 @@ nav {
   font-size: 17px;
 }
 kbd {
-  font:
-    11px "DM Sans",
-    sans-serif;
+  font: inherit;
+  font-size: 11px;
   border: 1px solid #d9dfd1;
   color: #969c8f;
   padding: 3px 7px;
@@ -253,10 +253,9 @@ footer > a:last-child {
   margin-top: 44px;
 }
 .result-heading h1 {
-  font:
-    400 64px/1.07 "Instrument Serif",
-    Georgia,
-    serif;
+  font-size: 56px;
+  font-weight: 650;
+  line-height: 1.07;
   letter-spacing: -1px;
   margin: 10px 0 12px;
   overflow-wrap: anywhere;
@@ -401,7 +400,7 @@ footer > a:last-child {
   color: #adb4a3;
 }
 .title-button {
-  font-family: "Instrument Serif", Georgia, serif;
+  font-family: inherit;
   font-size: 26px;
   line-height: 1.18;
   text-align: left;
@@ -628,7 +627,7 @@ g:focus .node {
   height: 180px;
   flex: 1;
   border-radius: 8px;
-  background: linear-gradient(100deg, #e5e8dc 30%, #f2f3eb 50%, #e5e8dc 70%);
+  background: #e5e8dc;
   background-size: 200%;
   animation: shimmer 2s infinite;
 }
@@ -667,10 +666,8 @@ g:focus .node {
   font-size: 12px;
 }
 .detail-panel h2 {
-  font:
-    36px/1.12 "Instrument Serif",
-    Georgia,
-    serif;
+  font-size: 32px;
+  line-height: 1.2;
   margin: 18px 0;
 }
 .detail-panel .paper-links {
@@ -736,19 +733,16 @@ g:focus .node {
   animation: cinema 0.7s ease both;
 }
 .tv-year {
-  font:
-    100px/0.9 "Instrument Serif",
-    Georgia,
-    serif;
+  font-size: 80px;
+  font-weight: 600;
+  line-height: 1;
   color: #b9d88b;
   letter-spacing: -5px;
 }
 .tv-slide h1 {
-  font:
-    46px/1.13 "Instrument Serif",
-    Georgia,
-    serif;
-  font-weight: 400;
+  font-size: 42px;
+  line-height: 1.2;
+  font-weight: 650;
   letter-spacing: -0.6px;
   margin: 24px 0;
 }
@@ -789,7 +783,8 @@ g:focus .node {
   flex: 1;
   border: 0;
   border-radius: 1px;
-  background: linear-gradient(transparent 10px, #33432d 10px, #33432d 14px, transparent 14px);
+  background: #33432d;
+  background-clip: content-box;
   overflow: hidden;
 }
 .tv-timeline i {
@@ -1186,7 +1181,8 @@ body:has(.tv) {
     flex: 1 0 44px;
     height: 44px;
     border-radius: 0;
-    background: linear-gradient(#33432d, #33432d) center / 100% 4px no-repeat;
+    background: #33432d;
+    background-clip: content-box;
     display: flex;
     align-items: center;
   }
@@ -1263,17 +1259,15 @@ body:has(.tv) {
     padding-bottom: 0;
   }
 }
-.your-topics, .new-papers {
+.new-papers {
   text-align: left;
   margin: 32px 0;
   padding: 20px 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
-.your-topics h2, .new-papers h2 { margin: 0 0 16px; font-size: 22px; }
+.new-papers h2 { margin: 0 0 16px; font-size: 22px; }
 .chips button { white-space: normal; text-align: left; }
-.your-topics .try-label { text-align: center; font-size: 10px; margin: 0 0 16px; }
-.your-topics .chips { justify-content: center; }
 .chips button small { display: inline-block; color: var(--green); margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: #e5e9dd; }
 .new-feed { display: grid; }
 .new-feed a { display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 12px 0; }
@@ -1282,3 +1276,34 @@ body:has(.tv) {
 @media (max-width: 600px) { .new-feed a { flex-direction: column; gap: 4px; } }
 .follow-hint, .new-papers p { color: #596353; font-size: 13px; }
 .actions { flex-wrap: wrap; }
+h1, h2, h3, .title-button { font-weight: 650; letter-spacing: -0.02em; }
+.home { max-width: 900px; padding: 48px 28px 80px; text-align: left; }
+.home .huge { margin: 0; max-width: none; height: 64px; box-shadow: none; }
+.topic-inbox { margin: 56px 0 64px; }
+.inbox-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 18px; }
+.home h1 { font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 0; line-height: 1.2; }
+.inbox-heading > span { font-size: 13px; color: var(--muted); }
+.inbox-list { border-top: 1px solid var(--line); }
+.inbox-row { display: flex; align-items: center; gap: 24px; width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 20px 4px; text-align: left; }
+.inbox-topic { flex: 1; min-width: 0; font-weight: 550; overflow-wrap: anywhere; }
+.inbox-topic small { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; color: var(--muted); }
+.unread-count { color: var(--green); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.read-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.inbox-arrow { color: var(--muted); font-size: 16px; }
+.featured-topics h2 { margin: 0 0 18px; font-size: 20px; }
+.featured-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; }
+.featured-grid button { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 4px; text-align: left; font-size: 15px; }
+.featured-grid button span { color: var(--muted); }
+.home .follow-hint { margin: 28px 0; font-size: 15px; color: var(--muted); }
+.title-button { font-size: 22px; line-height: 1.3; }
+@media (max-width: 600px) {
+  .home { padding: 28px 20px 48px; }
+  .home h1 { font-size: 27px; }
+  .topic-inbox { margin: 40px 0 44px; }
+  .inbox-row { gap: 12px; padding: 18px 0; }
+  .inbox-topic { font-size: 16px; }
+  .inbox-arrow { display: none; }
+  .featured-grid { grid-template-columns: 1fr; }
+  .home .huge { height: 60px; padding-left: 14px; gap: 10px; }
+  .home .huge kbd { display: none; }
+}
