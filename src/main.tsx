@@ -5,6 +5,7 @@ import {
   invalidQueryMessage,
   RateLimitError,
   publicationYear,
+  cluster,
   examples,
   slug,
   clampQuery,
@@ -123,6 +124,10 @@ function App() {
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
+        if (result.source === "Crossref") {
+          result = { ...result, papers: result.papers.map(p => ({ ...p })) };
+          cluster(result.papers, q);
+        }
         if (active) {
           setData(result);
           try {
