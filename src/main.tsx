@@ -11,6 +11,7 @@ import {
   type Paper,
 } from "./lib/pipeline";
 import "./style.css";
+import { slideDuration } from "./lib/tv";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -44,6 +45,9 @@ function App() {
     [copied, setCopied] = useState(false),
     [slide, setSlide] = useState(0),
     [paused, setPaused] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const [slideRun, setSlideRun] = useState(0);
+  const remaining = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   function navigate(next: Record<string, string | undefined>) {
@@ -127,14 +131,35 @@ function App() {
     max = Math.max(...years);
   const tour = playThrough(papers);
   const current = tour[Math.min(slide, tour.length - 1)];
+  const duration = current ? slideDuration(current.title, current.takeaway) : 6000;
+  function goToSlide(index: number) {
+    setSlide(index);
+    setSlideRun((run) => run + 1);
+    setFinished(false);
+  }
+  function togglePlayback() {
+    if (finished) {
+      goToSlide(0);
+      setPaused(false);
+    } else setPaused((p) => !p);
+  }
+  useEffect(() => {
+    remaining.current = duration;
+  }, [current?.id, slideRun, playing, duration]);
   useEffect(() => {
     if (!playing || paused || !tour.length) return;
-    const t = setInterval(
-      () => setSlide((s) => (s >= tour.length - 1 ? 0 : s + 1)),
-      7000,
-    );
-    return () => clearInterval(t);
-  }, [playing, paused, tour.length, slide]);
+    const started = performance.now();
+    const t = setTimeout(() => {
+      if (slide >= tour.length - 1) {
+        setFinished(true);
+        setPaused(true);
+      } else setSlide((s) => s + 1);
+    }, remaining.current);
+    return () => {
+      clearTimeout(t);
+      remaining.current = Math.max(0, remaining.current - (performance.now() - started));
+    };
+  }, [playing, paused, tour.length, slide, current?.id, slideRun, duration]);
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -164,16 +189,16 @@ function App() {
         }
         if (e.code === "Space") {
           e.preventDefault();
-          setPaused((p) => !p);
+          togglePlayback();
         }
         if (e.key === "ArrowRight")
-          setSlide((s) => Math.min(s + 1, tour.length - 1));
-        if (e.key === "ArrowLeft") setSlide((s) => Math.max(0, s - 1));
+          goToSlide(Math.min(slide + 1, tour.length - 1));
+        if (e.key === "ArrowLeft") goToSlide(Math.max(0, slide - 1));
       }
     };
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
-  }, [playing, tour.length]);
+  }, [playing, tour.length, slide, finished]);
   useEffect(() => {
     if (!selected && !playing) return;
     const previous = document.activeElement as HTMLElement;
@@ -306,7 +331,7 @@ function App() {
                 disabled={!tour.length}
                 className="play"
                 onClick={() => {
-                  setSlide(0);
+                  goToSlide(0);
                   setPaused(false);
                   navigate({ play: "1" });
                 }}
@@ -738,10 +763,12 @@ function App() {
                       className={
                         i === slide ? "current" : i < slide ? "done" : ""
                       }
-                      onClick={() => setSlide(i)}
+                      onClick={() => goToSlide(i)}
                     >
                       <i
+                        key={slideRun}
                         style={{
+                          animationDuration: `${duration}ms`,
                           animationPlayState: paused ? "paused" : "running",
                         }}
                       />
@@ -759,17 +786,17 @@ function App() {
                   <div>
                     <button
                       aria-label="Previous paper"
-                      onClick={() => setSlide((s) => Math.max(0, s - 1))}
+                      onClick={() => goToSlide(Math.max(0, slide - 1))}
                     >
                       ←
                     </button>
-                    <button onClick={() => setPaused(!paused)}>
-                      {paused ? "▶ Resume" : "Ⅱ Pause"}
+                    <button onClick={togglePlayback}>
+                      {finished ? "↺ Replay" : paused ? "▶ Resume" : "Ⅱ Pause"}
                     </button>
                     <button
                       aria-label="Next paper"
                       onClick={() =>
-                        setSlide((s) => Math.min(tour.length - 1, s + 1))
+                        goToSlide(Math.min(tour.length - 1, slide + 1))
                       }
                     >
                       →
