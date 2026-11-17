@@ -26,14 +26,15 @@ assert.equal(
 await page.goto(base + "?q=CRISPR");
 await page.locator(".start-card").first().waitFor({ timeout: 60000 });
 await page.screenshot({ path: out + "/results.png", fullPage: true });
-await page.locator('svg g[role="button"]').nth(-2).hover();
+await page.locator('svg g[role="button"]').last().hover();
 await page.getByRole("tooltip").waitFor();
 await page.screenshot({ path: out + "/map-hover.png", fullPage: true });
-await page.locator('svg g[role="button"]').nth(-2).click();
+await page.locator('svg g[role="button"]').last().click();
 await page.getByRole("dialog", { name: "Paper details" }).waitFor();
 await page.keyboard.press("Escape");
 await page.getByRole("button", { name: "▶ Play", exact: true }).click();
 await page.locator(".tv-slide").waitFor();
+assert.equal(await page.locator(".tv-no-abstract").count(), 0);
 await page.keyboard.press("Space");
 await page.keyboard.press("ArrowRight");
 assert.match(await page.locator(".tv-control-row").innerText(), /02 \/ 15/);
@@ -41,14 +42,19 @@ await page.screenshot({ path: out + "/tv-mode.png", fullPage: true });
 await page.keyboard.press("Escape");
 assert.equal(await page.locator(".tv").count(), 0);
 const quality: Record<string, unknown> = {};
-for (const q of ["CRISPR", "diffusion models"]) {
+for (const q of ["CRISPR", "diffusion models", "transformers"]) {
   await page.goto(base + "?q=" + encodeURIComponent(q));
   await page.locator(".start-card").first().waitFor();
+  assert.doesNotMatch(
+    await page.locator(".start-grid").innerText(),
+    /No abstract available/,
+  );
   quality[q] = await page.locator(".start-card").evaluateAll((cards) =>
     cards.map((c) => ({
       title: c.querySelector(".title-button")?.textContent,
       takeaway:
-        c.querySelector(".takeaway")?.textContent || "(No abstract available)",
+        c.querySelector(".takeaway")?.textContent ||
+        c.querySelector(".citation-summary")?.textContent,
     })),
   );
 }

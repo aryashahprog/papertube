@@ -5,6 +5,8 @@ import {
   examples,
   slug,
   cutoff,
+  startHere,
+  playThrough,
   type Dataset,
   type Paper,
 } from "./lib/pipeline";
@@ -79,7 +81,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = sessionStorage.getItem("pt-v1:" + q.toLowerCase());
+          const cached = sessionStorage.getItem("pt-v2:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -98,7 +100,7 @@ function App() {
           setData(result);
           try {
             sessionStorage.setItem(
-              "pt-v1:" + q.toLowerCase(),
+              "pt-v2:" + q.toLowerCase(),
               JSON.stringify(result),
             );
           } catch {}
@@ -123,7 +125,7 @@ function App() {
   const years = papers.map((p) => p.year);
   const min = Math.min(...years),
     max = Math.max(...years);
-  const tour = papers.slice(0, 15).sort((a, b) => a.year - b.year);
+  const tour = playThrough(papers);
   const current = tour[Math.min(slide, tour.length - 1)];
   useEffect(() => {
     if (!playing || paused || !tour.length) return;
@@ -387,7 +389,7 @@ function App() {
                   <p>Five doors into the subject. Start with any one.</p>
                 </div>
                 <div className="start-grid">
-                  {papers.slice(0, 5).map((p, i) => (
+                  {startHere(papers).map((p, i) => (
                     <article className="start-card" key={p.id}>
                       <div className="card-top">
                         <span className="number">0{i + 1}</span>
@@ -407,7 +409,14 @@ function App() {
                         {p.authors.length > 1 ? " et al." : ""}
                         {p.venue && ` · ${p.venue}`}
                       </div>
-                      {p.takeaway && <p className="takeaway">{p.takeaway}</p>}
+                      {p.takeaway ? (
+                        <p className="takeaway">{p.takeaway}</p>
+                      ) : (
+                        <p className="byline citation-summary">
+                          Cited {compact(p.citations)} times · {p.year}
+                          {p.venue ? ` · ${p.venue}` : ""}
+                        </p>
+                      )}
                       <div className="card-bottom">
                         <span
                           className="theme-label"
