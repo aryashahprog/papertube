@@ -127,7 +127,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = cacheStorage.getItem("pt-v5:" + q.toLowerCase());
+          const cached = cacheStorage.getItem("pt-v6:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -171,7 +171,7 @@ function App() {
           }
           try {
             cacheStorage.setItem(
-              "pt-v5:" + q.toLowerCase(),
+              "pt-v6:" + q.toLowerCase(),
               JSON.stringify(result),
             );
           } catch {}
