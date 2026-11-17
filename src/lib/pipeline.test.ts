@@ -59,6 +59,48 @@ test("deduplication, junk filtering, empty results, ranking", () => {
   assert.ok(d.papers[0].rank > 0);
   assert.deepEqual(finish([], "Crossref", "test", 0).papers, []);
 });
+test("publication variants deduplicate by title and first-author surname", () => {
+  const original = { ...p, title: "GNNExplainer: A finding.", authors: ["Rex Ying"], doi: "", citations: 100 };
+  const published = { ...original, id: "published", title: "gnnexplainer A FINDING", doi: "10/published", citations: 90 };
+  const newer = { ...published, id: "newer", doi: "10/newer", citations: 120 };
+  for (const input of [[original, published, newer], [newer, published, original]]) {
+    const d = finish(input, "OpenAlex", "finding", 3);
+    assert.equal(d.papers.length, 1);
+    assert.equal(d.papers[0].id, "newer");
+  }
+  assert.equal(finish([original, published], "OpenAlex", "finding", 2).papers[0].id, "published");
+  assert.equal(finish([original, { ...published, authors: ["Alex Smith"] }], "OpenAlex", "finding", 2).papers.length, 2);
+  assert.equal(finish([{ ...original, authors: [] }, { ...published, authors: [] }], "OpenAlex", "finding", 2).papers.length, 2);
+  assert.equal(finish([{ ...p, citations: 1 }, { ...p, citations: 20 }], "OpenAlex", "finding", 2).papers[0].citations, 20);
+});
+test("non-paper work types and retracted records are excluded without hiding research formats", () => {
+  const excluded = ["dataset", "paratext", "peer-review", "erratum", "grant", "proposal", "other", "retraction", "software", "supplementary-materials", "study-registration", "conference-abstract"];
+  const allowed = ["article", "review", "preprint", "book", "book-chapter", "report", "dissertation", "conference-paper", "data-paper", "software-paper", undefined];
+  const make = (workType: string | undefined): Paper => ({ ...p, id: String(workType), doi: `10/${workType}`, workType });
+  assert.deepEqual(finish(excluded.map(make), "OpenAlex", "finding", excluded.length).papers, []);
+  assert.equal(finish(allowed.map(make), "OpenAlex", "finding", allowed.length).papers.length, allowed.length);
+  assert.deepEqual(finish([{ ...p, retracted: true }], "OpenAlex", "finding", 1).papers, []);
+});
+test("discovery requests and reads OpenAlex type and retraction metadata", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (url) => {
+      const select = new URL(String(url)).searchParams.get("select")?.split(",") || [];
+      assert.ok(select.includes("type"));
+      assert.ok(select.includes("is_retracted"));
+      return Response.json({ meta: { count: 3 }, results: [
+        { id: "data", title: "A finding", publication_year: 2020, type: "dataset" },
+        { id: "retracted", title: "A finding", publication_year: 2020, type: "article", is_retracted: true },
+        { id: "paper", title: "A finding", publication_year: 2020, type: "preprint", is_retracted: false },
+      ] });
+    }) as typeof fetch;
+    const d = await discover("finding");
+    assert.deepEqual(d.papers.map((p) => p.id), ["paper"]);
+    assert.equal(d.papers[0].workType, "preprint");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("real Crossref CRISPR citation fragments and labels do not become takeaways", () => {
   const review =
     "CRISPR Defenses Prokaryotes can be infected by parasites and pathogens and, like eukaryotes, have evolved systems to protect themselves. Horvath and Barrangou (p. 167 ) review a recently discovered prokaryotic “immune system” characterized by CRISPR—clustered regularly interspaced short palindromic repeats—found in most archaeal and many bacterial species. These crRNAs direct other cas family proteins to homologous nucleic acid targets to effect their destruction.";
