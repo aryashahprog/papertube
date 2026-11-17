@@ -635,6 +635,10 @@ test("all bundled themes are short and target snapshots keep Other below fifteen
     const data = JSON.parse(readFileSync(new URL(`../../public/data/${name}.json`, import.meta.url), "utf8"));
     const refreshed = refreshDataset(data, topic);
     assert.ok(refreshed.papers.every(p => p.theme.length <= 24 && p.theme.split(/\s+/).length <= 3), topic);
+    const labels = new Set(refreshed.papers.map(p => p.theme));
+    assert.ok(labels.size >= 4 && labels.size <= 8, `${topic}: ${[...labels]}`);
+    assert.ok(![...labels].some(label => /^(?:Advanced Neural Network|Neural Networks|Topic Modeling)$/i.test(label)), topic);
+    assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
     if (["microplastics", "diffusion-models"].includes(name))
       assert.ok(refreshed.papers.filter(p => p.theme === "Other").length / refreshed.papers.length <= 0.15, topic);
     if (name === "diffusion-models") {
@@ -642,6 +646,22 @@ test("all bundled themes are short and target snapshots keep Other below fifteen
       assert.ok(ddpm && /Diffusion/.test(ddpm.theme), ddpm?.theme);
     }
   }
+});
+test("dominant query themes split by title and abstract into fitted subthemes", () => {
+  const groups = ["Marine Pollution", "Drinking Water", "Human Exposure", "Wastewater Treatment"];
+  const input = groups.flatMap((group, g) => Array.from({ length: 4 }, (_, i) => ({
+    ...p, id: `${g}-${i}`, doi: "", title: `Microplastics ${group} ${i}`,
+    abstract: `Microplastics in ${group.toLowerCase()} are examined here. The ${group.toLowerCase()} findings describe a distinct setting for plastic particles and their effects.`,
+    theme: "Microplastics and Plastic Pollution", topics: ["Microplastics and Plastic Pollution"],
+  })));
+  const result = finish(input, "OpenAlex", "microplastics", input.length);
+  const counts = new Map<string, number>();
+  result.papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+  assert.ok(counts.size >= 4 && counts.size <= 8, JSON.stringify([...counts]));
+  assert.ok(Math.max(...counts.values()) <= input.length / 2);
+  assert.ok(!counts.has("Microplastics") && !counts.has("Other"));
+  assert.ok(result.papers.every(p => p.theme.length <= 24 && p.theme.split(" ").length <= 3));
+  assert.ok(input.every(p => p.theme === "Microplastics and Plastic Pollution"));
 });
 test("non-research types are excluded and weak Crossref records are demoted", () => {
   const research = { ...p, title: "Sleep research", citations: 173, relevance: 1 };

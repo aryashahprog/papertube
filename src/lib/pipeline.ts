@@ -554,36 +554,46 @@ export function playThrough(papers: Paper[]) {
     .slice(0, 15)
     .sort((a, b) => a.year - b.year);
 }
-export function cluster(papers: Paper[], query: string) {
+export function cluster(papers: Paper[], query: string, context = false) {
+  const queryWords = new Set(query.toLowerCase().match(/[a-z]{3,}/g) || []);
+  const queryRoots = new Set([...queryWords].map(themeWord));
+  if (queryWords.size > 1) queryRoots.add([...queryWords].map(w => w[0]).join(""));
   const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/),
+    ...(context ? themeGeneric : []),
     ..."glucagon like peptide receptor receptors agonist agonists type".split(" ")]);
   const tokens = (p: Paper) => {
-    const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
-    const valid = (w: string) => !ignored.has(w);
-    return [...new Set(words.flatMap((_, i) => [1, 2, 3].flatMap(size => {
-      const phrase = words.slice(i, i + size);
-      const label = phrase.join(" ");
-      return phrase.length === size && label.length <= 24 && phrase.every((w, j) => valid(w) || (size > 1 && j === size - 1 && w === "loss")) ? [label] : [];
-    })))];
+    const valid = (w: string) => !ignored.has(w) && (!context || !queryRoots.has(themeWord(w)));
+    const chunks = (p.title + (context ? ". " + p.abstract : "")).replace(/https?:\/\/\S+/gi, " ").toLowerCase().split(/[.!?;:()[\]\n]+/);
+    return [...new Set(chunks.flatMap(chunk => {
+      const words = chunk.match(/[a-z]{3,}/g) || [];
+      return words.flatMap((_, i) => [1, 2, 3].flatMap(size => {
+        const phrase = words.slice(i, i + size);
+        const label = phrase.join(" ");
+        return phrase.length === size && label.length <= 24 && (!context || !/\b(?:large|linear|recurrent|adaptive|immune|environmental)$/.test(label)) && phrase.some(valid) && phrase.every((w, j) => valid(w) || (context && size > 1 && (queryRoots.has(themeWord(w)) || /^(?:models?|networks?)$/.test(w))) || (size > 1 && j === size - 1 && w === "loss")) ? [label] : [];
+      }));
+    }))];
   };
   const freq = new Map<string, number>();
+  const titleFrequency = new Map<string, number>();
+  if (context) papers.forEach(p => tokens({ ...p, abstract: "" }).forEach(w => titleFrequency.set(w, (titleFrequency.get(w) || 0) + 1)));
   papers.forEach((p) =>
     tokens(p).forEach((w) => freq.set(w, (freq.get(w) || 0) + 1)),
   );
   const labels: string[] = [];
   const uncovered = new Set(papers);
   const terms = new Map(papers.map(p => [p, new Set(tokens(p))]));
+  const titleTerms = new Map(papers.map(p => [p, new Set(tokens({ ...p, abstract: "" }))]));
   while (labels.length < 7) {
-    const candidates = [...freq].filter(([w, n]) => n >= 2 && !labels.includes(w));
+    const candidates = [...freq].filter(([w, n]) => n >= 2 && (!context || ((titleFrequency.get(w) || 0) <= papers.length * 0.5 && (titleFrequency.get(w) || 0) >= 2)) && !labels.includes(w));
     const counts = new Map<string, number>();
-    for (const p of uncovered) for (const w of terms.get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
+    for (const p of uncovered) for (const w of (context ? titleTerms : terms).get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
     const coverage = (w: string) => counts.get(w) || 0;
-    const weight = (label: string) => 1 + 0.4 * (label.split(" ").length - 1);
+    const weight = (label: string) => context ? label.split(" ").length * (1 + (titleFrequency.get(label) || 0) / (freq.get(label) || 1)) : 1 + 0.4 * (label.split(" ").length - 1);
     candidates.sort(([a], [b]) => coverage(b) * weight(b) - coverage(a) * weight(a));
     const label = candidates[0]?.[0];
     if (!label || coverage(label) < 2) break;
     labels.push(label);
-    for (const p of uncovered) if (terms.get(p)!.has(label)) uncovered.delete(p);
+    for (const p of uncovered) if ((context ? titleTerms : terms).get(p)!.has(label)) uncovered.delete(p);
   }
   papers.forEach((p) => {
     const words = tokens(p);
@@ -591,13 +601,31 @@ export function cluster(papers: Paper[], query: string) {
       .filter((w) => words.includes(w))
       .sort(
         (a, b) =>
+          (context ? Number(titleTerms.get(p)!.has(b)) - Number(titleTerms.get(p)!.has(a)) : 0) ||
           Math.log(papers.length / (freq.get(b) || 1)) -
           Math.log(papers.length / (freq.get(a) || 1)),
       )[0];
     p.theme = label ? label[0].toUpperCase() + label.slice(1) : "Other";
   });
+  if (context) {
+    const expanded = new Map<string, string>();
+    for (const label of labels.filter(label => !label.includes(" "))) {
+      const phrases = new Map<string, number>();
+      papers.forEach(p => {
+        const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
+        const seen = new Set(words.flatMap((_, i) => [2, 3].flatMap(size => {
+          const phrase = words.slice(i, i + size);
+          return phrase.length === size && phrase.includes(label) && phrase.some(w => queryRoots.has(themeWord(w))) && phrase.join(" ").length <= 24 && !phrase.some(w => stop.has(w) && !queryRoots.has(themeWord(w))) ? [phrase.join(" ")] : [];
+        })));
+        seen.forEach(phrase => phrases.set(phrase, (phrases.get(phrase) || 0) + 1));
+      });
+      const best = [...phrases].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (best) expanded.set(label, best);
+    }
+    papers.forEach(p => p.theme = expanded.get(p.theme.toLowerCase()) || p.theme);
+  }
 }
-const themeGeneric = new Set("research technique techniques study studies applications methods method analysis approach approaches model models network networks generative not was were been being which who whose when where while between also both such other different however there all each including used uses present proposed propose show shown show demonstrate demonstrated provide provides compared obtained found significant significantly well two three first second one many much most some several further respectively across within without only".split(" "));
+const themeGeneric = new Set("beyond toward towards automated overview characteristics comprehensive survey surveys technology technologies clustered regularly interspaced short palindromic repeats then https http www github com available state art performance evaluation advanced research technique techniques study studies applications methods method analysis approach approaches model models network networks generative topic modeling neural not was were been being which who whose when where while between also both such other different however there all each including used uses present proposed propose show shown show demonstrate demonstrated provide provides compared obtained found significant significantly well two three first second one many much most some several further respectively across within without only".split(" "));
 const themeWord = (word: string) => word.replace(/s$/, "");
 const themeTokens = (text: string, query = "") => {
   const ignored = new Set([...stop, ...(query.toLowerCase().match(/[a-z]{3,}/g) || []), ...themeGeneric].map(themeWord));
@@ -605,12 +633,12 @@ const themeTokens = (text: string, query = "") => {
     .map(themeWord).filter(w => !ignored.has(w)));
 };
 function shortTheme(name: string) {
-  const trimmed = name.replace(/\s+(?:and\s+)?(?:research|techniques?|studies|and applications|applications|methods?|analysis)$/gi, "")
+  const trimmed = name.replace(/\b(?:advanced|applications)\b/gi, "").trim().replace(/\s+(?:and\s+)?(?:research|techniques?|studies|and applications|applications|methods?|analysis)$/gi, "")
     .split(/\s+(?:and|&)\s+|[,;:]/i)[0].trim();
   const words = trimmed.split(/\s+/);
   if (words.length > 3 || trimmed.length > 24) return "";
   while (words.length && /^(and|of|in|for|with|the|to|augmented|based|guided|assisted)$/i.test(words.at(-1)!)) words.pop();
-  return words.map(w => /^[A-Z\d-]+$/.test(w) ? w : w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  return words.map(w => /^(?:rna|dna|crispr)$/i.test(w) ? w.toUpperCase() : /^[A-Z\d-]+$/.test(w) ? w : w[0]?.toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 function consensusTopics(papers: Paper[]) {
   const choices = (p: Paper) => [...new Set(p.topics?.slice(0, 3).filter(Boolean) || [])];
@@ -634,35 +662,64 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
     }).length / members.length;
     if (!label || fit < 0.3) {
       const copies = members.map(p => ({ ...p }));
-      cluster(copies, "");
+      cluster(copies, members.length < 8 ? "" : query, members.length >= 8);
       const counts = new Map<string, number>();
       copies.filter(p => p.theme !== "Other").forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+      if (!counts.size) {
+        cluster(copies, "");
+        copies.filter(p => p.theme !== "Other").forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+      }
       label = shortTheme([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || "Other");
     }
     members.forEach(p => p.theme = label || "Other");
   }
-  const counts = new Map<string, number>();
-  papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
-  const keep = [...counts].filter(([name, n]) => name !== "Other" && n >= 2)
-    .sort((a, b) => b[1] - a[1]).slice(0, 7).map(([name]) => name);
-  const vectors = new Map(papers.map(p => [p, themeTokens(p.title + " " + p.abstract, query)]));
-  const profiles = keep.map(name => {
-    const members = papers.filter(p => p.theme === name && p.coherent !== false);
-    const frequency = new Map<string, number>();
-    members.forEach(p => vectors.get(p)!.forEach(w => frequency.set(w, (frequency.get(w) || 0) + 1)));
-    return { name, members: members.length, frequency };
-  });
-  papers.forEach(p => {
-    if (keep.includes(p.theme) && p.coherent !== false) return;
-    const matches = profiles.map(profile => {
-      const shared = [...vectors.get(p)!].filter(w => (profile.frequency.get(w) || 0) >= 2);
-      const score = shared.length < 2 ? 0 : shared.reduce((sum, w) =>
-        sum + (profile.frequency.get(w) || 0) / Math.max(1, profile.members), 0) / Math.sqrt(Math.max(1, vectors.get(p)!.size));
-      return { name: profile.name, score };
-    }).sort((a, b) => b.score - a.score);
-    p.theme = matches[0]?.score > 0 ? matches[0].name : "Other";
-    if (p.theme !== "Other") p.coherent = true;
-  });
+  for (let pass = 0; pass < 3; pass++) {
+    const previous = papers.map(p => p.theme).join("\n");
+    const dominant = new Map<string, Paper[]>();
+    papers.forEach(p => dominant.set(p.theme, [...(dominant.get(p.theme) || []), p]));
+    for (const [name, members] of dominant) {
+      const queryOnly = themeTokens(name, query).size === 0;
+      if (name === "Other" || members.length < 4 || (members.length <= papers.length / 2 && !queryOnly)) continue;
+      const copies = members.map(p => ({ ...p }));
+      cluster(copies, query, true);
+      const labels = new Set(copies.filter(p => p.theme !== "Other").map(p => shortTheme(p.theme)).filter(Boolean));
+      if (labels.size >= 2) members.forEach((p, i) => p.theme = shortTheme(copies[i].theme) || "Other");
+    }
+    const canonical = new Map<string, string>();
+    papers.forEach(p => {
+      const key = p.theme.toLowerCase().split(/\s+/).map(themeWord).join(" ");
+      if (!canonical.has(key)) canonical.set(key, p.theme);
+      p.theme = canonical.get(key)!;
+    });
+    const counts = new Map<string, number>();
+    papers.forEach(p => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
+    const keep = [...counts].filter(([name, n]) => name !== "Other" && n >= 2)
+      .sort((a, b) => b[1] - a[1]).slice(0, 7).map(([name]) => name);
+    const vectors = new Map(papers.map(p => [p, themeTokens(p.title + " " + p.abstract, query)]));
+    const profiles = keep.map(name => {
+      const members = papers.filter(p => p.theme === name && p.coherent !== false);
+      const frequency = new Map<string, number>();
+      members.forEach(p => vectors.get(p)!.forEach(w => frequency.set(w, (frequency.get(w) || 0) + 1)));
+      return { name, members: members.length, frequency };
+    });
+    papers.forEach(p => {
+      if (keep.includes(p.theme) && p.coherent !== false) return;
+      const matches = profiles.map(profile => {
+        const shared = [...vectors.get(p)!].filter(w => (profile.frequency.get(w) || 0) >= 2);
+        const label = themeTokens(profile.name);
+        const title = themeTokens(p.title);
+        const exact = themeTokens(profile.name, query).size > 0 && label.size > 0 && [...label].every(w => title.has(w));
+        const score = (shared.length < 2 && !exact) ? 0 : Number(exact) + shared.reduce((sum, w) =>
+          sum + (profile.frequency.get(w) || 0) / Math.max(1, profile.members), 0) / Math.sqrt(Math.max(1, vectors.get(p)!.size));
+        return { name: profile.name, score };
+      }).sort((a, b) => b.score - a.score);
+      p.theme = matches[0]?.score > 0 ? matches[0].name : "Other";
+      if (p.theme !== "Other") p.coherent = true;
+    });
+    const sizes = new Map<string, number>();
+    papers.forEach(p => sizes.set(p.theme, (sizes.get(p.theme) || 0) + 1));
+    if (Math.max(0, ...sizes.values()) <= papers.length / 2 || previous === papers.map(p => p.theme).join("\n")) break;
+  }
 }
 export function finish(
   input: Paper[],
