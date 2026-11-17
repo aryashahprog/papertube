@@ -50,6 +50,10 @@ export function relativeDate(date: string): string {
   return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
 }
 export interface RecentPaper { id: string; title: string; year: number; url: string }
+export function unreadPapers(papers: RecentPaper[], seenIds: string[]): RecentPaper[] {
+  const seen = new Set(seenIds);
+  return papers.filter((p) => !seen.has(p.id));
+}
 const countKey = (follow: Follow) => `pt-count-v3:${follow.q}:${follow.lastSeenAt.slice(0, 10)}`;
 export function readCountCache(value: string | null, now = Date.now()): number | undefined {
   try {
@@ -84,7 +88,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     if (items && !Array.isArray(data.results)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "OpenAlex"); } catch {}
     return { count, papers: items ? data.results.map((w: any) => ({
-      id: w.id, title: w.title, year: w.publication_year,
+      id: w.doi?.toLowerCase() || w.id, title: w.title, year: w.publication_year,
       url: w.doi || w.primary_location?.landing_page_url || w.id,
     })) : [] };
   } catch {
@@ -96,7 +100,7 @@ async function recentWorks(follow: Follow, items: boolean): Promise<{ count: num
     if (items && !Array.isArray(data.message.items)) throw new Error("Invalid works");
     try { cacheStorage.setItem(countKey(follow) + ":source", "Crossref"); } catch {}
     return { count, papers: items ? data.message.items.map((w: any) => ({
-      id: "https://doi.org/" + w.DOI, title: w.title?.[0] || w.DOI,
+      id: "https://doi.org/" + w.DOI?.toLowerCase(), title: w.title?.[0] || w.DOI,
       year: w.published?.["date-parts"]?.[0]?.[0] || 0,
       url: w.DOI ? "https://doi.org/" + w.DOI : w.URL,
     })) : [] };
@@ -107,10 +111,10 @@ export async function countNewPapers(follow: Follow): Promise<number> {
     const cached = readCountCache(cacheStorage.getItem(countKey(follow)));
     if (cached !== undefined) return cached;
   } catch {}
-  const { count } = await recentWorks(follow, false);
+  const count = unreadPapers((await recentWorks(follow, true)).papers, follow.seenIds).length;
   try { cacheStorage.setItem(countKey(follow), JSON.stringify({ count, expiresAt: Date.now() + 600000 })); } catch {}
   return count;
 }
 export async function recentPapers(follow: Follow): Promise<RecentPaper[]> {
-  return (await recentWorks(follow, true)).papers;
+  return unreadPapers((await recentWorks(follow, true)).papers, follow.seenIds);
 }

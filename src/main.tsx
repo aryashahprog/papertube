@@ -159,7 +159,7 @@ function App() {
               if (!active) return;
               setRecent(items);
               const latest = readFollows(followsStorage);
-              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: ids };
+              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: [...new Set([...previous.seenIds, ...items.map((p) => p.id)])] };
               const updated = latest.map((f) => f.q === previous.q ? visited : f);
               if (writeFollows(followsStorage, updated)) {
                 markTopicVisited(previous, visited);
@@ -415,7 +415,7 @@ function App() {
                 const now = new Date().toISOString();
                 const updated = followed ? saved.filter((f) => f.q !== normalizeQuery(q)) : [...saved, {
                   q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
-                  seenIds: (data?.papers || []).map((p) => p.id),
+                  seenIds: [],
                 }];
                 if (writeFollows(followsStorage, updated)) { setFollows(updated); setNewIds([]); }
               }}>{followed ? "Following ✓" : "Follow topic"}</button>

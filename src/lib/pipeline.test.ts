@@ -19,7 +19,19 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { readCountCache, safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+import { unreadPapers, readCountCache, safeStorage, countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+test("same-day publications already shown are excluded from badges and feeds", async () => {
+  const papers = [{ id: "seen", title: "Old", year: 2025, url: "https://example.org" }, { id: "new", title: "New", year: 2025, url: "https://example.org" }];
+  assert.deepEqual(unreadPapers(papers, ["seen"]), [papers[1]]);
+  assert.deepEqual(unreadPapers([], []), []);
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 2 }, results: papers.map((p) => ({ id: p.id, title: p.title, publication_year: p.year })) }))) as typeof fetch;
+  try {
+    const follow = { q: "test", label: "test", lastSeenAt: "2025-01-01", followedAt: "2025-01-01", seenIds: ["seen"] };
+    assert.equal(await countNewPapers(follow), 1);
+    assert.equal((await recentPapers(follow)).length, 1);
+  } finally { globalThis.fetch = original; }
+});
 test("count caches expire, including zero; recent results always fetch fresh", async () => {
   assert.equal(readCountCache(JSON.stringify({ count: 0, expiresAt: 100 }), 99), 0);
   assert.equal(readCountCache(JSON.stringify({ count: 0, expiresAt: 100 }), 100), undefined);
