@@ -437,7 +437,7 @@ test("Start here uses relevance-weighted core topics without changing the full l
   const incidental = make("Attention Is All You Need", "Graph Learning", 100);
   const input = [smallWorld, gcn, gat, graphsage, exact, incidental];
   const before = structuredClone(input);
-  assert.deepEqual(startHere(input, "graph neural networks"), [gcn, gat, graphsage, exact]);
+  assert.deepEqual(startHere(input, "graph neural networks"), [gcn, gat, graphsage, exact, smallWorld]);
   assert.deepEqual(input, before);
   assert.deepEqual(startHere(input), input.slice(0, 5));
   assert.deepEqual(startHere(input, ""), []);
@@ -448,9 +448,19 @@ test("Start here uses relevance-weighted core topics without changing the full l
   const barriers = make("A framework to diagnose barriers to climate change adaptation", "Adaptation Governance", 90);
   const governance = make("Reframing adaptation: The political nature of climate change adaptation", "Adaptation Governance", 80);
   const wg2 = make("Climate Change 2022 – Impacts, Adaptation and Vulnerability", "Climate Science", 1);
-  assert.deepEqual(startHere([wg1, ecology, barriers, governance, wg2], "climate change adaptation"), [barriers, governance, wg2]);
+  assert.deepEqual(startHere([wg1, ecology, barriers, governance, wg2], "climate change adaptation"), [barriers, governance, wg2, wg1, ecology]);
   const noisy = Array.from({ length: 30 }, () => make("Networks", "Complex Networks", 1));
-  assert.deepEqual(startHere([smallWorld, gcn, gat, graphsage, ...noisy], "graph neural networks"), [gcn, gat, graphsage]);
+  assert.deepEqual(startHere([smallWorld, gcn, gat, graphsage, ...noisy], "graph neural networks"), [gcn, gat, graphsage, smallWorld, noisy[0]]);
+});
+test("Start here backfills topic-less records after core qualifiers in rank order", () => {
+  const papers = Array.from({ length: 7 }, (_, i): Paper => ({
+    ...p, id: String(i), title: `Graph research ${i}`, theme: "Other", topics: [],
+  }));
+  assert.deepEqual(startHere(papers, "graph neural networks"), papers.slice(0, 5));
+  const exact = { ...papers[6], title: "Graph neural networks" };
+  assert.deepEqual(startHere([...papers.slice(0, 6), exact], "graph neural networks"), [exact, ...papers.slice(0, 4)]);
+  assert.deepEqual(startHere([{ ...papers[0], coherent: false }, { ...papers[1], title: "Unrelated biology" }], "graph neural networks"), []);
+  assert.deepEqual(startHere(papers.slice(0, 2), "graph neural networks"), papers.slice(0, 2));
 });
 test("OpenAlex citation-only records receive neutral relevance during discovery", async () => {
   const original = globalThis.fetch;

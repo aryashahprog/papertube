@@ -347,13 +347,13 @@ export function startHere(papers: Paper[], query?: string) {
     });
   const strongest = Math.max(0, ...scores.values());
   const core = new Set([...scores].filter(([, score]) => score === strongest).map(([name]) => name));
-  return papers.filter((p) =>
+  const eligible = papers.filter((p) =>
     p.coherent !== false &&
-    (query === undefined ||
-      (terms.some((t) => contains(normalized(p.title), t)) &&
-        (core.has(topic(p)) ||
-          terms.every((t) => contains(normalized(p.title), t))))),
-  ).slice(0, 5);
+    (query === undefined || terms.some((t) => contains(normalized(p.title), t))),
+  );
+  const qualified = eligible.filter((p) => query === undefined ||
+    core.has(topic(p)) || terms.every((t) => contains(normalized(p.title), t)));
+  return [...qualified, ...eligible.filter((p) => !qualified.includes(p))].slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
   return papers
