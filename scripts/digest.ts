@@ -1,8 +1,8 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { recentWorks, titleMatchesTopic, type RecentPaper } from "../src/lib/follows";
+import { recentWorks, titleMatchesTopic } from "../src/lib/follows";
 import { examples, slug } from "../src/lib/pipeline";
-import { audienceFields, deliveryPlan, parseTopics, renderEmail, selectPapers, subjectFor, suggestions, type Subscriber, type Topic } from "./digest-lib";
+import { audienceFields, deliveryPlan, parseTopics, previewTopics, renderEmail, selectPapers, subjectFor, suggestions, topicBatches, type Subscriber, type Topic } from "./digest-lib";
 
 const api = "https://api.buttondown.com/v1/";
 async function request(url: string, key: string, body?: unknown) {
@@ -24,15 +24,15 @@ async function main() {
   if (values.topics !== undefined && !dryRun) throw new Error("--topics requires --dry-run");
   let groups: Map<string, number>;
   let unfiltered = false;
-  if (values.topics !== undefined) groups = new Map([[values.topics || "featured", 0]]);
+  const preview = previewTopics(dryRun, key, values.topics);
+  if (preview !== undefined) groups = new Map([[preview, 0]]);
   else {
-    if (!key) throw new Error("Dry-run needs BUTTONDOWN_API_KEY or --topics");
     const subscribers: Subscriber[] = [], visited = new Set<string>();
     let next: string | null = api + "subscribers";
     while (next) {
       if (visited.has(next)) throw new Error("Repeated Buttondown pagination URL");
       visited.add(next);
-      const page = await request(next, key);
+      const page = await request(next, key!);
       if (!Array.isArray(page.results) || !(page.next === null || typeof page.next === "string")) throw new Error("Invalid subscriber response");
       subscribers.push(...page.results);
       next = page.next;
@@ -51,13 +51,12 @@ async function main() {
   const topics = wanted.slice(0, 40);
   if (wanted.length > topics.length) console.warn(`Topic cap: fetching ${topics.length} of ${wanted.length} topics.`);
   const now = new Date(), from = new Date(now.getTime() - 28 * 86400000).toISOString();
-  const batches = new Map<string, RecentPaper[]>();
-  for (const topic of topics) {
+  const batches = await topicBatches(topics, async topic => {
     const batch = await recentWorks({ q: topic, label: topic, followedAt: from, lastSeenAt: from, seenIds: [] }, true);
     const papers = batch.papers.filter(paper => titleMatchesTopic(paper.title, topic));
-    batches.set(topic, papers);
     console.log(`${topic}: ${papers.length} papers`);
-  }
+    return papers;
+  }, topic => console.warn(`${topic}: indexes unavailable; skipping topic.`));
   if (dryRun) await mkdir("digest-preview", { recursive: true });
   let index = 0;
   for (const [group, recipients] of groups) {
@@ -65,11 +64,12 @@ async function main() {
     const papers = followed.length ? selectPapers(followed, batches) :
       selectPapers(featuredQueries, batches, false);
     if (!papers.length) { console.log(`Skipping group ${JSON.stringify(group)}: no papers.`); continue; }
-    const subject = subjectFor(papers), body = renderEmail(papers, suggestions(featured, followed, now));
+    const headings = followed.length ? followed.map(query => ({ query, label: featured.find(topic => topic.query === query)?.label || query })) : featured;
+    const subject = subjectFor(papers), body = renderEmail(papers, suggestions(featured, followed, now), headings);
     if (dryRun) {
       const path = `digest-preview/${++index}.html`;
       await writeFile(path, body);
-      console.log(`Dry-run: ${subject}; ${recipients} recipients${values.topics !== undefined ? " (preview only)" : ""}; ${path}`);
+      console.log(`Dry-run: ${subject}; ${recipients} recipients${preview !== undefined ? " (preview only)" : ""}; ${path}`);
     } else {
       await request(api + "emails", key!, { subject, body, status: "about_to_send", archival_mode: "disabled", ...audienceFields(group, unfiltered) });
       console.log(`Queued: ${subject}; ${recipients} recipients`);
