@@ -6,7 +6,7 @@ import {
   RateLimitError,
   publicationYear,
   cluster,
-  finish,
+  refreshDataset,
   examples,
   slug,
   clampQuery,
@@ -145,7 +145,7 @@ function App() {
           } catch {}
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
-        result = { ...finish(result.papers, result.source, q, result.total), fetchedAt: result.fetchedAt };
+        result = refreshDataset(result, q);
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
         if (result.source !== "OpenAlex") {
           result = { ...result, papers: result.papers.map(p => ({ ...p })) };

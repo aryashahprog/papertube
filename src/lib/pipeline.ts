@@ -691,6 +691,14 @@ export function finish(
     ...(suggestion ? { suggestion } : {}),
   };
 }
+export function refreshDataset(data: Dataset, query: string): Dataset {
+  const refreshed = finish(data.papers, data.source, query, data.total);
+  return {
+    ...refreshed,
+    fetchedAt: data.fetchedAt,
+    ...(!refreshed.papers.length && data.suggestion ? { suggestion: data.suggestion } : {}),
+  };
+}
 export class RateLimitError extends Error {}
 const cooldownKey = "pt-openalex-retry-at";
 function pause(ms: number, signal?: AbortSignal) {

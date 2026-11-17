@@ -5,6 +5,7 @@ import {
   reconstruct,
   takeaway,
   finish,
+  refreshDataset,
   discover,
   RateLimitError,
   cleanAbstract,
@@ -352,6 +353,21 @@ test("known words require a frequent close neighbor before correction", () => {
     ...p, title: "Quantum computing", abstract: "Quantum states interact with quantum effects and quantum noise.",
   }], "quantm computing"), "quantum computing");
 });
+test("App dataset refresh preserves raw-candidate suggestions for every source", () => {
+  const candidates = [{ ...p, title: "Diffusion models" }];
+  for (const source of ["OpenAlex", "Crossref", "Europe PMC"] as const) {
+    const discovered = finish(candidates, source, "difusion modles", 1);
+    assert.deepEqual(discovered.papers, []);
+    assert.equal(discovered.suggestion, "diffusion models");
+    const refreshed = refreshDataset(discovered, "difusion modles");
+    assert.equal(refreshed.suggestion, "diffusion models", source);
+    assert.equal(refreshed.fetchedAt, discovered.fetchedAt);
+    assert.equal(refreshed.source, source);
+    assert.deepEqual(refreshed.papers, []);
+    assert.equal(refreshDataset({ ...discovered, suggestion: undefined }, "asdkjh qwpoe zzxv").suggestion, undefined);
+    assert.equal(refreshDataset({ ...discovered, papers: candidates }, "diffusion models").suggestion, undefined);
+  }
+});
 test("real Crossref typo fixtures produce supported corrections without changing correct queries", async (t) => {
   for (const [query, suggestion, count] of [
     ["difusion modles", "diffusion models", 0],
@@ -373,13 +389,14 @@ test("real Crossref typo fixtures produce supported corrections without changing
     const mock = t.mock.method(globalThis, "fetch", async (input: string) => {
       calls++;
       const url = new URL(String(input));
-      if (url.hostname === "api.openalex.org") return new Response("", { status: 503 });
+      if (url.hostname === "api.openalex.org") return new Response("", { status: 429 });
       return Response.json(fixture(url.searchParams.has("sort") ? "cited" :
         url.searchParams.has("filter") ? "proceedings" : "relevance"));
     });
     const result = await discover(query);
     mock.mock.restore();
     assert.equal(result.suggestion, suggestion, query);
+    assert.equal(refreshDataset(result, query).suggestion, suggestion, query);
     if (count !== undefined) assert.equal(result.papers.length, count, query);
     else assert.ok(result.papers.length > 0, query);
     assert.equal(calls, 6, query);
