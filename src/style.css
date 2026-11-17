@@ -638,7 +638,7 @@ g:focus .node {
   color: #79856d;
   line-height: 1.8;
 }
-.empty button {
+.empty > button {
   display: block;
   margin: 20px auto;
 }
