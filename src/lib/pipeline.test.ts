@@ -10,6 +10,7 @@ import {
   cleanAbstract,
   matchesQuery,
   publicationYear,
+  cluster,
   startHere,
   playThrough,
   examples,
@@ -212,6 +213,17 @@ test("publication years choose earlier dates and never exceed the current year",
   assert.equal(publicationYear(), 0);
   assert.equal(publicationYear(NaN, -1, 0), 0);
   assert.equal(finish([{ ...p, year: year + 1 }], "Crossref", "finding", 1).papers[0].year, year);
+});
+test("themes skip generic words, prefer phrases and cover outliers", () => {
+  const papers = ["New study after weight loss with bariatric surgery", "Data review of bariatric surgery effects", "Marine pollution study", "New marine pollution data"].map((title, i) => ({ ...p, id: String(i), title, coherent: false }));
+  cluster(papers, "GLP-1 drugs");
+  assert.equal(papers[0].theme, "Bariatric surgery");
+  assert.equal(papers[2].theme, "Marine pollution");
+  assert.ok(papers.every(p => !/^(After|Loss|New|Data|Study|Review|Other)$/.test(p.theme)));
+  assert.doesNotThrow(() => cluster([], "test"));
+  const sparse = [{ ...p, title: "A unique finding" }];
+  cluster(sparse, "finding");
+  assert.equal(sparse[0].theme, "Other");
 });
 test("deduplication, junk filtering, empty results, ranking", () => {
   const d = finish(

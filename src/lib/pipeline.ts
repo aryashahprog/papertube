@@ -210,7 +210,7 @@ function cross(w: Raw): Paper {
   };
 }
 const stop = new Set(
-  "a an the and or of to in on for with by from using based new study analysis research model models approach via as at is are we this that into its it paper review human method methods application applications comparison improved improving estimation introduction results framework system systems".split(
+  "a an the and or of to in on for with by from using based new study analysis research model models approach via as at is are we this that into its it paper review human method methods application applications comparison improved improving estimation introduction results framework system systems after loss use effect effects studies reviews data may more than does what how say over under among through during have has can could should their our these those remains remain associated association role impact impacts potential recent advances".split(
     " ",
   ),
 );
@@ -372,22 +372,30 @@ export function playThrough(papers: Paper[]) {
 }
 export function cluster(papers: Paper[], query: string) {
   const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/)]);
-  const tokens = (p: Paper) => [
-    ...new Set(
-      (p.title.toLowerCase().match(/[a-z]{4,}/g) || []).filter(
-        (w) => !ignored.has(w),
-      ),
-    ),
-  ];
+  const tokens = (p: Paper) => {
+    const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
+    const valid = (w: string) => !ignored.has(w);
+    return [...new Set(words.filter(valid).concat(words.slice(1).flatMap((w, i) =>
+      valid(words[i]) && valid(w) ? [words[i] + " " + w] : [])))];
+  };
   const freq = new Map<string, number>();
   papers.forEach((p) =>
     tokens(p).forEach((w) => freq.set(w, (freq.get(w) || 0) + 1)),
   );
-  const labels = [...freq]
-    .filter(([, n]) => n >= 3)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 7)
-    .map(([w]) => w);
+  const labels: string[] = [];
+  const uncovered = new Set(papers);
+  const terms = new Map(papers.map(p => [p, new Set(tokens(p))]));
+  while (labels.length < 7) {
+    const candidates = [...freq].filter(([w, n]) => n >= 2 && !labels.includes(w));
+    const counts = new Map<string, number>();
+    for (const p of uncovered) for (const w of terms.get(p)!) counts.set(w, (counts.get(w) || 0) + 1);
+    const coverage = (w: string) => counts.get(w) || 0;
+    candidates.sort(([a], [b]) => coverage(b) * (b.includes(" ") ? 1.4 : 1) - coverage(a) * (a.includes(" ") ? 1.4 : 1));
+    const label = candidates[0]?.[0];
+    if (!label || coverage(label) < 2) break;
+    labels.push(label);
+    for (const p of uncovered) if (terms.get(p)!.has(label)) uncovered.delete(p);
+  }
   papers.forEach((p) => {
     const words = tokens(p);
     const label = labels
@@ -494,7 +502,7 @@ export function finish(
     .slice(0, 7)
     .map(([n]) => n);
   papers.forEach((p) => {
-    if (!keep.includes(p.theme) || p.coherent === false) p.theme = "Other";
+    if (!keep.includes(p.theme) || (source === "OpenAlex" && p.coherent === false)) p.theme = "Other";
   });
   return { papers, source, total, fetchedAt: new Date().toISOString() };
 }
