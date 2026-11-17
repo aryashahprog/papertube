@@ -13,9 +13,22 @@ import {
   playThrough,
   examples,
   invalidQueryMessage,
+  clampQuery,
   type Dataset,
   type Paper,
 } from "./pipeline";
+test("query limits preserve code points and remove lone input surrogates", () => {
+  assert.equal(clampQuery(""), "");
+  assert.equal(clampQuery("a".repeat(201)), "a".repeat(200));
+  const query = "a".repeat(199) + "😀" + "extra";
+  assert.equal(clampQuery(query), "a".repeat(199) + "😀");
+  assert.equal(Array.from(clampQuery("😀".repeat(201))).length, 200);
+  assert.doesNotThrow(() => encodeURIComponent(clampQuery(query)));
+  const truncatedInput = query.slice(0, 200);
+  assert.equal(clampQuery(truncatedInput), "a".repeat(199));
+  assert.doesNotThrow(() => encodeURIComponent(clampQuery(truncatedInput)));
+  assert.equal(clampQuery("\uD800hello\uDFFF"), "hello");
+});
 test("abstract reconstruction and finding extraction", () => {
   assert.equal(
     reconstruct({ We: [0], show: [1], results: [2] }),

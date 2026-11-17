@@ -6,6 +6,7 @@ import {
   RateLimitError,
   examples,
   slug,
+  clampQuery,
   cutoff,
   startHere,
   playThrough,
@@ -34,7 +35,7 @@ function App() {
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
-  const q = params.get("q") || "";
+  const q = clampQuery(params.get("q") || "");
   const hot = params.get("view") === "hot";
   const playing = params.get("play") === "1";
   const [input, setInput] = useState(q),
@@ -312,8 +313,9 @@ function App() {
             <input
               ref={inputRef}
               aria-label="Research topic"
+              maxLength={200}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(clampQuery(e.target.value))}
               placeholder="A question. A field. A rabbit hole."
             />
             <kbd>/</kbd>
@@ -340,8 +342,9 @@ function App() {
             <input
               ref={inputRef}
               aria-label="Research topic"
+              maxLength={200}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(clampQuery(e.target.value))}
             />
             <button aria-label="Search">↗</button>
           </form>
@@ -686,8 +689,21 @@ function App() {
           )}
           {data && !papers.length && !loading && (
             <div className="empty">
-              No papers found{hot ? " in this recent window" : ""}. Try a
-              broader topic{hot ? " or switch to Canon" : ""}.
+              {hot ? (
+                <>No papers found in this recent window. Try a broader topic or switch to Canon.</>
+              ) : (
+                <>
+                  No papers mention “{q}”.
+                  <p>Check the spelling, or try fewer, broader words.</p>
+                </>
+              )}
+              <div className="chips">
+                {examples.map((t) => (
+                  <button key={t} onClick={() => navigate({ q: t })}>
+                    {t} <span>↗</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </main>
