@@ -637,6 +637,14 @@ g:focus .node {
   color: #79856d;
   line-height: 1.8;
 }
+.empty a {
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.empty a:hover {
+  text-decoration-thickness: 2px;
+}
 .empty > button {
   display: block;
   margin: 20px auto;

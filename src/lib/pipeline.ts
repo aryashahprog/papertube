@@ -39,6 +39,7 @@ export interface Paper {
 }
 export interface Dataset {
   papers: Paper[];
+  suggestion?: string;
   source: "OpenAlex" | "Crossref" | "Europe PMC";
   fetchedAt: string;
   total: number;
@@ -378,6 +379,63 @@ export function matchesQuery(p: Paper, query: string) {
   return terms.filter((term) => contains(texts.join(" "), term)).length >= required ||
     terms.every((term) => contains(topics, term));
 }
+function editDistance(a: string, b: string) {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0),
+  );
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        rows[i - 1][j - 1] + Number(a[i - 1] !== b[j - 1]),
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        rows[i][j] = Math.min(rows[i][j], rows[i - 2][j - 2] + 1);
+    }
+  return rows[a.length][b.length];
+}
+export function suggestQuery(papers: Paper[], query: string) {
+  const phrase = words(query);
+  if (!phrase || !/^[\p{Script=Latin}\p{N} ]+$/u.test(phrase) ||
+    papers.some((paper) => matchesQuery(paper, query))) return;
+  const frequency = new Map<string, number>();
+  const abstractFrequency = new Map<string, number>();
+  for (const paper of papers) {
+    for (const [text, counts] of [
+      [paper.title + " " + paper.abstract, frequency],
+      [paper.abstract, abstractFrequency],
+    ] as const)
+      for (const word of words(text).split(" "))
+        if (/^\p{Script=Latin}{3,32}$/u.test(word))
+          counts.set(word, (counts.get(word) || 0) + 1);
+  }
+  const known = new Set([...frequency.keys()].map(normalized));
+  const dominates = (candidate: string, word: string, counts: Map<string, number>) =>
+    (counts.get(candidate) || 0) >= Math.max(3, (counts.get(word) || 0) * 3);
+  let changed = false;
+  const corrected = phrase.split(" ").map((word) => {
+    if (!/^\p{Script=Latin}{3,32}$/u.test(word)) return word;
+    const limit = word.length <= 4 ? 1 : 2;
+    let best = word, distance = limit + 1, count = 0;
+    for (const [candidate, n] of frequency) {
+      if (Math.abs(candidate.length - word.length) > limit) continue;
+      if (normalized(candidate) === normalized(word)) continue;
+      if (known.has(normalized(word)) &&
+        !dominates(candidate, word, frequency) &&
+        !dominates(candidate, word, abstractFrequency)) continue;
+      const d = editDistance(word, candidate);
+      if (d <= limit && (d < distance || (d === distance && n > count))) {
+        best = candidate;
+        distance = d;
+        count = n;
+      }
+    }
+    if (best !== word) changed = true;
+    return best;
+  }).join(" ");
+  if (changed && papers.some((paper) => matchesQuery(paper, corrected))) return corrected;
+}
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
     [...stop].map(normalized).concat(normalized(query).split(" ")),
@@ -530,6 +588,7 @@ export function finish(
   source: Dataset["source"],
   query: string,
   total: number,
+  candidates: Paper[] = input,
 ): Dataset {
   const excludedTypes = new Set([
     "dataset", "paratext", "peer-review", "erratum", "other", "retraction",
@@ -627,7 +686,18 @@ export function finish(
   papers.forEach((p) => {
     if (!keep.includes(p.theme) || (source === "OpenAlex" && p.coherent === false)) p.theme = "Other";
   });
-  return { papers, source, total, fetchedAt: new Date().toISOString() };
+  const suggestion = papers.length ? undefined : suggestQuery(candidates, query);
+  return { papers, source, total, fetchedAt: new Date().toISOString(),
+    ...(suggestion ? { suggestion } : {}),
+  };
+}
+export function refreshDataset(data: Dataset, query: string): Dataset {
+  const refreshed = finish(data.papers, data.source, query, data.total);
+  return {
+    ...refreshed,
+    fetchedAt: data.fetchedAt,
+    ...(!refreshed.papers.length && data.suggestion ? { suggestion: data.suggestion } : {}),
+  };
 }
 export class RateLimitError extends Error {}
 const cooldownKey = "pt-openalex-retry-at";
@@ -770,6 +840,7 @@ export async function discover(
       });
     const d = await request(base);
     let works = d.message.items.map(cross) as Paper[];
+    const candidates = [...works];
     progress(
       `Found ${works.length} records · Checking influential papers…`,
       finish(works, "Crossref", query, d.message["total-results"]),
@@ -779,7 +850,9 @@ export async function discover(
         base + "&sort=is-referenced-by-count&order=desc",
       );
       const terms = normalized(searchQuery).split(" ").filter(Boolean);
-      const extra = (cited.message.items.map(cross) as Paper[]).filter(
+      const citedWorks = cited.message.items.map(cross) as Paper[];
+      candidates.push(...citedWorks);
+      const extra = citedWorks.filter(
         (p) =>
           terms.filter((t) => contains(normalized(p.title), t)).length >=
           Math.max(1, Math.ceil(terms.length * 0.6)),
@@ -788,9 +861,11 @@ export async function discover(
     } catch { signal?.throwIfAborted(); }
     try {
       const proceedings = await request(base + "&filter=type:proceedings-article");
-      works = works.concat(proceedings.message.items.map(cross));
+      const extra = proceedings.message.items.map(cross) as Paper[];
+      candidates.push(...extra);
+      works = works.concat(extra);
     } catch { signal?.throwIfAborted(); }
-    const result = finish(works, "Crossref", query, d.message["total-results"]);
+    const result = finish(works, "Crossref", query, d.message["total-results"], candidates);
     progress(`Found ${result.papers.length} papers · Mapping themes…`, result);
     return result;
   }

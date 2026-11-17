@@ -6,7 +6,7 @@ import {
   RateLimitError,
   publicationYear,
   cluster,
-  finish,
+  refreshDataset,
   examples,
   slug,
   clampQuery,
@@ -145,7 +145,7 @@ function App() {
           } catch {}
         }
         if (!result) result = await discover(q, update, undefined, controller.signal);
-        result = { ...finish(result.papers, result.source, q, result.total), fetchedAt: result.fetchedAt };
+        result = refreshDataset(result, q);
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
         if (result.source !== "OpenAlex") {
           result = { ...result, papers: result.papers.map(p => ({ ...p })) };
@@ -774,6 +774,11 @@ function App() {
               ) : (
                 <>
                   No papers mention “{q}”.
+                  {data.suggestion && (
+                    <p>
+                      Did you mean <a href={`?q=${encodeURIComponent(data.suggestion)}`}>{data.suggestion}</a>?
+                    </p>
+                  )}
                   <p>Try a broader topic.</p>
                 </>
               )}
