@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { doi, workType, enrichPaper, request } from "./enrich";
+import { doi, workType, enrichPaper, request, priorityPapers } from "./enrich";
 import type { Paper } from "../src/lib/pipeline";
 test("DOI and publication types normalize to pipeline fields", () => {
   assert.equal(doi("https://doi.org/10.1/ABC"), "10.1/abc");
@@ -24,6 +24,15 @@ test("requests retry 429 gently and surface permanent errors", async () => {
   let calls = 0; const waits: number[] = [];
   const fetcher = (async () => ++calls === 1 ? new Response("limited", { status: 429 }) : Response.json([null])) as typeof fetch;
   assert.deepEqual(await request("https://example.test", {}, fetcher, (async (ms: number) => { waits.push(ms); }) as any), [null]);
-  assert.deepEqual(waits, [10000]);
+  assert.deepEqual(waits, [60000]);
   await assert.rejects(request("https://example.test", {}, (async () => new Response("unavailable", { status: 503 })) as typeof fetch), /HTTP 503 unavailable/);
+});
+test("priority includes the ranked forty and original Start here, with empty input valid", () => {
+  const papers = Array.from({ length: 60 }, (_, i) => ({ id: String(i), doi: String(i), title: "Sleep finding " + i, year: 2020, citations: i, relevance: i, abstract: "", theme: "Sleep", coherent: true, rank: i } as Paper));
+  const data = { papers, source: "OpenAlex" as const, total: 60, fetchedAt: "" };
+  const selected = priorityPapers(data, "sleep");
+  assert.equal(selected.length, 45);
+  assert.ok(selected.some(p => p.id === "59"));
+  assert.ok(selected.some(p => p.id === "0"));
+  assert.deepEqual(priorityPapers({ ...data, papers: [] }, "sleep"), []);
 });
