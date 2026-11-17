@@ -380,12 +380,13 @@ export function playThrough(papers: Paper[]) {
     .sort((a, b) => a.year - b.year);
 }
 export function cluster(papers: Paper[], query: string) {
-  const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/)]);
+  const ignored = new Set([...stop, ...query.toLowerCase().split(/[^a-z]+/),
+    ..."glucagon like peptide receptor receptors agonist agonists type".split(" ")]);
   const tokens = (p: Paper) => {
     const words = p.title.toLowerCase().match(/[a-z]{3,}/g) || [];
     const valid = (w: string) => !ignored.has(w);
     return [...new Set(words.filter(valid).concat(words.slice(1).flatMap((w, i) =>
-      valid(words[i]) && valid(w) ? [words[i] + " " + w] : [])))];
+      valid(words[i]) && (valid(w) || w === "loss") ? [words[i] + " " + w] : [])))];
   };
   const freq = new Map<string, number>();
   papers.forEach((p) =>

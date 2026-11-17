@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fromEuropePmc, discoverEuropePmc } from "./europe-pmc";
-import { startHere, type Dataset } from "../src/lib/pipeline";
+import { startHere, cluster, type Dataset } from "../src/lib/pipeline";
 const record = { id: "123", source: "MED", title: "GLP-1 drugs improve outcomes", pubYear: "2020", citedByCount: 100, abstractText: "We demonstrate that GLP-1 drugs significantly improve clinical outcomes in this randomized trial.", pubTypeList: { pubType: ["Clinical Trial"] } };
 test("Europe PMC records preserve research metadata and reject news or missing abstracts", () => {
   const paper = fromEuropePmc(record)!;
@@ -36,4 +36,12 @@ test("GLP-1 snapshot starts with five research excerpts and truthful provenance"
   assert.ok(top.every(p => p.abstract && p.takeaway && p.citations > 100));
   assert.ok(data.papers.every(p => p.year <= new Date().getFullYear() && ["article", "review"].includes(p.workType || "")));
   assert.ok(new Set(data.papers.map(p => p.theme)).size > 1);
+});
+test("GLP-1 labels avoid mechanism fragments and retain meaningful loss phrases", () => {
+  const data: Dataset = JSON.parse(readFileSync(new URL("../public/data/glp-1-drugs.json", import.meta.url), "utf8"));
+  cluster(data.papers, "GLP-1 drugs");
+  assert.ok(data.papers.every(p => !/\b(glucagon|like|peptide|receptors?|agonists?|type)\b/i.test(p.theme)));
+  const papers = ["Weight loss with GLP-1 receptor agonists", "Weight loss with glucagon like peptide agonists"].map(title => ({ ...data.papers[0], title }));
+  cluster(papers, "GLP-1 drugs");
+  assert.deepEqual(papers.map(p => p.theme), ["Weight loss", "Weight loss"]);
 });
