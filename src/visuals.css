@@ -33,7 +33,8 @@
 .sketch-accent { stroke: #ba714b; }
 .sketch-label {
   fill: currentColor;
-  font: 11px "DM Sans", sans-serif;
+  font-family: inherit;
+  font-size: 11px;
 }
 .visual-caption {
   display: block;
