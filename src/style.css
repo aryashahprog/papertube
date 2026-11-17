@@ -1299,6 +1299,16 @@ h1, h2, h3, .title-button { font-weight: 650; letter-spacing: -0.02em; }
 .read-count { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .inbox-arrow { color: var(--muted); font-size: 16px; }
 .featured-topics h2 { margin: 0 0 18px; font-size: 20px; }
+.weekly-email { margin: -28px 0 56px; padding: 24px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.weekly-email h2 { margin: 0 0 6px; font-size: 16px; }
+.weekly-email p { margin: 0; font-size: 13px; color: var(--muted); }
+.weekly-email form { display: flex; gap: 8px; }
+.weekly-email input[type="email"] { min-width: 0; width: 200px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 14px; }
+.weekly-email button { padding: 10px 16px; font-size: 14px; }
+@media (max-width: 700px) {
+  .weekly-email { flex-direction: column; align-items: stretch; gap: 16px; }
+  .weekly-email input[type="email"] { flex: 1; width: auto; }
+}
 .featured-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 32px; }
 .featured-grid button { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 16px 4px; text-align: left; font-size: 15px; }
 .featured-grid button span { color: var(--muted); }
