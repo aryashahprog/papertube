@@ -6,12 +6,18 @@ export function groupSubscribers(subscribers: Subscriber[]): Map<string, number>
   const groups = new Map<string, number>();
   for (const subscriber of subscribers) {
     if (!["regular", "premium", "gifted"].includes(subscriber.type)) continue;
-    const topics = typeof subscriber.metadata?.topics === "string" ? subscriber.metadata.topics : "";
+    const topics = typeof subscriber.metadata?.topics === "string" && subscriber.metadata.topics ? subscriber.metadata.topics : "featured";
     groups.set(topics, (groups.get(topics) || 0) + 1);
   }
   return groups;
 }
-export const parseTopics = (value: string) => [...new Set(value.split("|").map(normalizeQuery).filter(Boolean))].sort();
+export function deliveryPlan(subscribers: Subscriber[]) {
+  const unfiltered = !subscribers.some(subscriber => subscriber.type === "regular" &&
+    typeof subscriber.metadata?.topics === "string" && subscriber.metadata.topics.length > 0);
+  const groups = groupSubscribers(subscribers);
+  return { unfiltered, groups: unfiltered && groups.size ? new Map([["featured", [...groups.values()].reduce((a, b) => a + b, 0)]]) : groups };
+}
+export const parseTopics = (value: string) => value === "featured" ? [] : [...new Set(value.split("|").map(normalizeQuery).filter(Boolean))].sort();
 export function selectPapers(topics: string[], batches: Map<string, RecentPaper[]>, roundRobin = true): RecentPaper[] {
   const queues = topics.map(topic => [...(batches.get(topic) || [])]
     .filter(p => titleMatchesTopic(p.title, topic))
@@ -44,9 +50,9 @@ export function suggestions(featured: Topic[], followed: string[], date: Date): 
   return [...candidates.slice(offset), ...candidates.slice(0, offset)].slice(0, 3);
 }
 export const audience = (topics: string) => ({ predicate: "and", groups: [], filters: [
-  // Empty groups use equals ""; missing metadata is not assumed to match this filter.
-  { field: "subscriber.metadata.topics", operator: "equals", value: topics },
+  { field: "subscriber.metadata.topics", operator: "equals", value: topics || "featured" },
 ] });
+export const audienceFields = (topics: string, unfiltered: boolean) => unfiltered ? {} : { filters: audience(topics) };
 export const subjectFor = (papers: RecentPaper[]) => `${papers.length} paper${papers.length === 1 ? "" : "s"} this week`;
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const safeUrl = (value: string) => /^https?:\/\//i.test(value) ? escape(value) : "#";

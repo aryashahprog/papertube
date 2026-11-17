@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { recentWorks, titleMatchesTopic, type RecentPaper } from "../src/lib/follows";
 import { examples, slug } from "../src/lib/pipeline";
-import { audience, groupSubscribers, parseTopics, renderEmail, selectPapers, subjectFor, suggestions, type Subscriber, type Topic } from "./digest-lib";
+import { audienceFields, deliveryPlan, parseTopics, renderEmail, selectPapers, subjectFor, suggestions, type Subscriber, type Topic } from "./digest-lib";
 
 const api = "https://api.buttondown.com/v1/";
 async function request(url: string, key: string, body?: unknown) {
@@ -23,7 +23,8 @@ async function main() {
   if (!key && !dryRun) { console.log("Weekly digest not configured: BUTTONDOWN_API_KEY is unset."); return; }
   if (values.topics !== undefined && !dryRun) throw new Error("--topics requires --dry-run");
   let groups: Map<string, number>;
-  if (values.topics !== undefined) groups = new Map([[values.topics, 0]]);
+  let unfiltered = false;
+  if (values.topics !== undefined) groups = new Map([[values.topics || "featured", 0]]);
   else {
     if (!key) throw new Error("Dry-run needs BUTTONDOWN_API_KEY or --topics");
     const subscribers: Subscriber[] = [], visited = new Set<string>();
@@ -36,7 +37,7 @@ async function main() {
       subscribers.push(...page.results);
       next = page.next;
     }
-    groups = groupSubscribers(subscribers);
+    ({ groups, unfiltered } = deliveryPlan(subscribers));
   }
   const featured: Topic[] = [];
   for (const file of (await readdir("public/data")).filter(file => file.endsWith(".json")).sort()) {
@@ -70,7 +71,7 @@ async function main() {
       await writeFile(path, body);
       console.log(`Dry-run: ${subject}; ${recipients} recipients${values.topics !== undefined ? " (preview only)" : ""}; ${path}`);
     } else {
-      await request(api + "emails", key!, { subject, body, status: "about_to_send", archival_mode: "disabled", filters: audience(group) });
+      await request(api + "emails", key!, { subject, body, status: "about_to_send", archival_mode: "disabled", ...audienceFields(group, unfiltered) });
       console.log(`Queued: ${subject}; ${recipients} recipients`);
     }
   }

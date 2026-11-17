@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audience, groupSubscribers, isoWeek, parseTopics, renderEmail, selectPapers, suggestions } from "./digest-lib";
+import { audience, audienceFields, deliveryPlan, groupSubscribers, isoWeek, parseTopics, renderEmail, selectPapers, suggestions } from "./digest-lib";
 import { recentWorks, type RecentPaper } from "../src/lib/follows";
 
 const paper = (id: string, title: string, citations = 0): RecentPaper => ({ id, title, citations, url: `https://doi.org/${id}`, year: 2026, date: "2026-11-15" });
@@ -10,12 +10,30 @@ test("groups only deliverable subscriber types by exact metadata string", () => 
     { type: "premium", metadata: { topics: "crispr|longevity" } },
     { type: "gifted", metadata: { topics: "longevity|crispr" } },
     { type: "regular" }, { type: "regular", metadata: { topics: "" } },
+    { type: "regular", metadata: { topics: "featured" } },
     { type: "unactivated" }, { type: "unsubscribed" },
     { type: "regular", metadata: { topics: ["crispr"] } },
-  ])], [["crispr|longevity", 2], ["longevity|crispr", 1], ["", 3]]);
+  ])], [["crispr|longevity", 2], ["longevity|crispr", 1], ["featured", 4]]);
   assert.equal(groupSubscribers([]).size, 0);
   assert.deepEqual(parseTopics(" Longevity | CRISPR |crispr||"), ["crispr", "longevity"]);
-  assert.equal(audience("").filters[0].value, "");
+  assert.equal(audience("").filters[0].value, "featured");
+  assert.equal(audience("featured").filters[0].value, "featured");
+  assert.deepEqual(parseTopics("featured"), []);
+});
+test("metadata-free regular subscribers get one general broadcast without filters", () => {
+  const plan = deliveryPlan([{ type: "regular" }, { type: "regular", metadata: { topics: "" } },
+    { type: "premium", metadata: { topics: "crispr" } }, { type: "unactivated" }]);
+  assert.equal(plan.unfiltered, true);
+  assert.deepEqual([...plan.groups], [["featured", 3]]);
+  assert.deepEqual(audienceFields("featured", plan.unfiltered), {});
+  assert.ok(!Object.hasOwn(audienceFields("featured", plan.unfiltered), "filters"));
+  for (const topics of ["featured", "crispr"]) {
+    const segmented = deliveryPlan([{ type: "regular", metadata: { topics } }, { type: "regular" }]);
+    assert.equal(segmented.unfiltered, false);
+    assert.deepEqual(audienceFields(topics, segmented.unfiltered), { filters: audience(topics) });
+  }
+  assert.equal(deliveryPlan([]).groups.size, 0);
+  assert.equal(deliveryPlan([{ type: "unsubscribed" }]).groups.size, 0);
 });
 test("round robin sorts by citations, skips duplicates and unrelated titles, caps at five", () => {
   const a = [paper("1", "CRISPR longevity", 100), paper("2", "CRISPR two", 90), paper("3", "CRISPR three", 80), paper("4", "CRISPR four", 70)];
