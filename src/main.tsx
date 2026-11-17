@@ -5,6 +5,7 @@ import {
   invalidQueryMessage,
   examples,
   slug,
+  clampQuery,
   cutoff,
   startHere,
   playThrough,
@@ -33,7 +34,7 @@ function App() {
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
-  const q = (params.get("q") || "").slice(0, 200);
+  const q = clampQuery(params.get("q") || "");
   const hot = params.get("view") === "hot";
   const playing = params.get("play") === "1";
   const [input, setInput] = useState(q),
@@ -305,7 +306,7 @@ function App() {
               aria-label="Research topic"
               maxLength={200}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(clampQuery(e.target.value))}
               placeholder="A question. A field. A rabbit hole."
             />
             <kbd>/</kbd>
@@ -334,7 +335,7 @@ function App() {
               aria-label="Research topic"
               maxLength={200}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(clampQuery(e.target.value))}
             />
             <button aria-label="Search">↗</button>
           </form>

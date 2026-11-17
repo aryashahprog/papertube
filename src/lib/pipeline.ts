@@ -13,6 +13,8 @@ export const slug = (s: string) =>
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-");
+export const clampQuery = (s: string) =>
+  Array.from(s.replace(/[\uD800-\uDFFF]/gu, "")).slice(0, 200).join("");
 export interface Paper {
   id: string;
   doi: string;
