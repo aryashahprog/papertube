@@ -19,7 +19,28 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { countNewPapers, newPaperIds, readFollows, writeFollows } from "./follows";
+import { countNewPapers, newPaperIds, readFollows, recentPapers, writeFollows } from "./follows";
+test("recent works share count filters, map links, handle empty and reject errors", async () => {
+  const original = globalThis.fetch;
+  const follow = { q: "crispr", label: "CRISPR", followedAt: "2025-01-01", lastSeenAt: "2025-01-02", seenIds: [] };
+  try {
+    const urls: URL[] = [];
+    globalThis.fetch = (async (url) => {
+      urls.push(new URL(String(url)));
+      return new Response(JSON.stringify({ meta: { count: 1 }, results: [{ id: "oa:1", title: "Finding", publication_year: 2025, primary_location: { landing_page_url: "https://example.org/paper" } }] }));
+    }) as typeof fetch;
+    assert.equal(await countNewPapers(follow), 1);
+    assert.deepEqual(await recentPapers(follow), [{ id: "oa:1", title: "Finding", year: 2025, url: "https://example.org/paper" }]);
+    for (const key of ["search", "filter", "sort"]) assert.equal(urls[0].searchParams.get(key), urls[1].searchParams.get(key));
+    assert.equal(urls[1].searchParams.get("per-page"), "8");
+    globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 0 }, results: [] }))) as typeof fetch;
+    assert.deepEqual(await recentPapers(follow), []);
+    globalThis.fetch = (async (url) => String(url).includes("openalex") ? new Response("", { status: 503 }) : new Response(JSON.stringify({ message: { "total-results": 1, items: [{ DOI: "10/example", title: ["Fallback"], published: { "date-parts": [[2025]] } }] } }))) as typeof fetch;
+    assert.equal((await recentPapers(follow))[0].url, "https://doi.org/10/example");
+    globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
+    await assert.rejects(recentPapers(follow));
+  } finally { globalThis.fetch = original; }
+});
 test("cheap counts use OpenAlex, fall back to Crossref, and reject dual failure", async () => {
   const original = globalThis.fetch;
   const follow = { q: "crispr", label: "CRISPR", followedAt: "2025-01-01", lastSeenAt: "2025-01-02", seenIds: [] };

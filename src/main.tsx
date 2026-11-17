@@ -18,7 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
-import { countNewPapers, newPaperIds, normalizeQuery, readFollows, relativeDate, writeFollows, type Follow } from "./lib/follows";
+import { countNewPapers, markTopicVisited, newPaperIds, normalizeQuery, readFollows, recentPapers, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -38,6 +38,7 @@ function App() {
   const [follows, setFollows] = useState<Follow[]>(() => readFollows(localStorage));
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [newIds, setNewIds] = useState<string[]>([]);
+  const [recent, setRecent] = useState<RecentPaper[]>([]);
   const [params, setParams] = useState(
     () => new URLSearchParams(location.search),
   );
@@ -97,6 +98,7 @@ function App() {
   useEffect(() => {
     setInput(q);
     setNewIds([]);
+    setRecent([]);
     setSelected(null);
     if (!q) {
       setData(null);
@@ -152,9 +154,18 @@ function App() {
           if (previous) {
             const ids = result.papers.map((p) => p.id);
             setNewIds(newPaperIds(ids, previous.seenIds));
-            const updated = saved.map((f) => f === previous
-              ? { ...f, lastSeenAt: new Date().toISOString(), seenIds: ids } : f);
-            if (writeFollows(localStorage, updated)) setFollows(updated);
+            try {
+              const items = await recentPapers(previous);
+              if (!active) return;
+              setRecent(items);
+              const latest = readFollows(localStorage);
+              const visited = { ...previous, lastSeenAt: new Date().toISOString(), seenIds: ids };
+              const updated = latest.map((f) => f.q === previous.q ? visited : f);
+              if (writeFollows(localStorage, updated)) {
+                markTopicVisited(previous, visited);
+                setFollows(updated);
+              }
+            } catch {}
           }
           try {
             sessionStorage.setItem(
@@ -353,8 +364,8 @@ function App() {
           </form>
           {!follows.length && <p className="follow-hint">Follow topics to track papers</p>}
           {!!follows.length && <section className="your-topics" aria-label="Your topics">
-            <h2>Your topics</h2>
-            <div className="chips">{follows.map((f) => <button key={f.q} onClick={() => navigate({ q: f.q })}>
+            <h2 className="try-label">YOUR TOPICS</h2>
+            <div className="chips">{[...follows].sort((a, b) => Number((counts[b.q] || 0) > 0) - Number((counts[a.q] || 0) > 0)).map((f) => <button key={f.q} onClick={() => navigate({ q: f.q })}>
               {f.label} <span>↗</span>
               {counts[f.q] !== undefined && <small title={`Since ${relativeDate(f.lastSeenAt)}`}>{counts[f.q] === 0 ? "Up to date" : `${counts[f.q]} new`}</small>}
             </button>)}</div>
@@ -464,10 +475,10 @@ function App() {
               </div>
             </div>
           </div>
-          {followed && !!newIds.length && <section className="new-papers" aria-label="New since your last visit">
+          {followed && !!recent.length && <section className="new-papers" aria-label="New since your last visit">
             <h2>New since your last visit</h2>
-            <div className="new-feed">{papers.filter((p) => newIds.includes(p.id)).map((p) =>
-              <button key={p.id} onClick={() => setSelected(p)}><span>{p.title}</span><small>{p.year} · {compact(p.citations)} citations ↗</small></button>)}</div>
+            <div className="new-feed">{recent.map((p) =>
+              <a key={p.id} href={p.url} target="_blank" rel="noreferrer"><span>{p.title}</span><small>{p.year} ↗</small></a>)}</div>
           </section>}
           {data?.source === "Crossref" && (
             <p className="backup">

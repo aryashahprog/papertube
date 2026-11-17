@@ -1272,13 +1272,14 @@ body:has(.tv) {
 }
 .your-topics h2, .new-papers h2 { margin: 0 0 16px; font-size: 22px; }
 .chips button { white-space: normal; text-align: left; }
-.your-topics .chips { justify-content: flex-start; }
+.your-topics .try-label { text-align: center; font-size: 10px; margin: 0 0 16px; }
+.your-topics .chips { justify-content: center; }
 .chips button small { display: inline-block; color: var(--green); margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: #e5e9dd; }
 .new-feed { display: grid; }
-.new-feed button { display: flex; justify-content: space-between; gap: 16px; text-align: left; border: 0; border-radius: 0; padding: 12px 0; }
-.new-feed button + button { border-top: 1px solid var(--line); }
+.new-feed a { display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 12px 0; }
+.new-feed a + a { border-top: 1px solid var(--line); }
 .new-feed small { color: var(--muted); flex-shrink: 0; }
-@media (max-width: 600px) { .new-feed button { flex-direction: column; gap: 4px; } }
+@media (max-width: 600px) { .new-feed a { flex-direction: column; gap: 4px; } }
 .follow-hint, .new-papers p { color: #596353; font-size: 13px; }
 .new-pill { display: inline-block; margin-left: 8px; padding: 3px 7px; border-radius: 8px; background: #beff7a; color: #182016; font-size: 11px; }
 .actions { flex-wrap: wrap; }
