@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   discover,
   invalidQueryMessage,
+  RateLimitError,
   examples,
   slug,
   cutoff,
@@ -41,6 +42,7 @@ function App() {
     [status, setStatus] = useState(""),
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
+    [retry, setRetry] = useState(0),
     [selected, setSelected] = useState<Paper | null>(null),
     [hover, setHover] = useState<Paper | null>(null),
     [share, setShare] = useState(false),
@@ -81,6 +83,7 @@ function App() {
       return;
     }
     let active = true;
+    const controller = new AbortController();
     setData(null);
     setLoading(true);
     setError("");
@@ -108,6 +111,7 @@ function App() {
           try {
             const r = await fetch(
               `${import.meta.env.BASE_URL}data/${slug(q)}.json`,
+              { signal: controller.signal },
             );
             if (r.ok) {
               const d = await r.json();
@@ -115,7 +119,7 @@ function App() {
             }
           } catch {}
         }
-        if (!result) result = await discover(q, update);
+        if (!result) result = await discover(q, update, undefined, controller.signal);
         if (active) {
           setData(result);
           try {
@@ -125,10 +129,14 @@ function App() {
             );
           } catch {}
         }
-      } catch {
-        if (active)
+      } catch (error) {
+        if (active && !controller.signal.aborted)
           setError(
-            "Both research indexes are unavailable right now. Please try again in a moment.",
+            navigator.onLine === false
+              ? "You seem to be offline. Reconnect and try again."
+              : error instanceof RateLimitError
+                ? "The free research indexes are busy right now. Wait a minute and try again."
+                : "Both research indexes are unavailable right now. Please try again in a moment.",
           );
       } finally {
         if (active) setLoading(false);
@@ -136,8 +144,9 @@ function App() {
     })();
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [q]);
+  }, [q, retry]);
   useEffect(() => {
     const next = `${q}\n${hot}`;
     if (selection.current !== next) {
@@ -441,7 +450,7 @@ function App() {
             <div role="alert" className="empty">
               {error}
               {error !== invalidQueryMessage && (
-                <button onClick={() => location.reload()}>Try again ↗</button>
+                <button onClick={() => setRetry((n) => n + 1)}>Try again ↗</button>
               )}
             </div>
           )}

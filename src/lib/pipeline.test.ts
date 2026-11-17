@@ -6,6 +6,7 @@ import {
   takeaway,
   finish,
   discover,
+  RateLimitError,
   cleanAbstract,
   matchesQuery,
   startHere,
@@ -497,4 +498,100 @@ test("OpenAlex errors fall back to Crossref, empty is valid, dual failure reject
   } finally {
     globalThis.fetch = original;
   }
+});
+test("Crossref retries throttling and CORS-like network failures with backoff", async (t) => {
+  const empty = () => Response.json({ message: { items: [], "total-results": 0 } });
+  const originalTimeout = globalThis.setTimeout;
+  const delays: number[] = [];
+  t.mock.method(globalThis, "setTimeout", ((callback: () => void, delay: number) => {
+    delays.push(delay);
+    return originalTimeout(callback, 0);
+  }) as typeof setTimeout);
+  for (const failure of ["429", "network"]) {
+    let calls = 0;
+    const statuses: string[] = [];
+    delays.length = 0;
+    t.mock.method(globalThis, "fetch", async (url: string) => {
+      if (String(url).includes("openalex")) return new Response("", { status: 503 });
+      calls++;
+      if (calls <= 2) {
+        if (failure === "network") throw new TypeError("Failed to fetch");
+        return new Response("", { status: 429, headers: { "retry-after": "3" } });
+      }
+      return empty();
+    });
+    assert.equal((await discover("test", (s) => statuses.push(s))).source, "Crossref");
+    assert.deepEqual(delays, failure === "429" ? [3000, 5000] : [2000, 5000]);
+    assert.ok(statuses.includes("The index is busy · Retrying in 5s…"));
+    assert.equal(calls, 5);
+  }
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (String(url).includes("openalex")) return new Response("", { status: 503 });
+    calls++;
+    throw new TypeError("Failed to fetch");
+  });
+  await assert.rejects(() => discover("test"), RateLimitError);
+  assert.equal(calls, 3);
+});
+test("OpenAlex 429 starts a session cooldown that expires after ten minutes", async (t) => {
+  const storage = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    },
+  });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "sessionStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "sessionStorage");
+  });
+  let now = 1000000;
+  t.mock.method(Date, "now", () => now);
+  let openalex = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    if (String(url).includes("openalex")) {
+      openalex++;
+      return new Response("", { status: 429 });
+    }
+    return Response.json({ message: { items: [], "total-results": 0 } });
+  });
+  await discover("first");
+  assert.equal(openalex, 3);
+  assert.equal(storage.get("pt-openalex-retry-at"), "1600000");
+  await discover("second");
+  assert.equal(openalex, 3);
+  now += 600001;
+  await discover("third");
+  assert.equal(openalex, 6);
+});
+test("cancellation aborts all in-flight requests without starting the fallback", async (t) => {
+  const controller = new AbortController();
+  const signals: AbortSignal[] = [];
+  t.mock.method(globalThis, "fetch", (_url: string, options: RequestInit) => {
+    const signal = options.signal!;
+    signals.push(signal);
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  });
+  const search = discover("test", () => {}, undefined, controller.signal);
+  controller.abort();
+  await assert.rejects(search, { name: "AbortError" });
+  assert.equal(signals.length, 3);
+  assert.ok(signals.every((signal) => signal.aborted));
+});
+test("cancellation interrupts retry backoff and prevents further requests", async (t) => {
+  const controller = new AbortController();
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    calls++;
+    return new Response("", { status: String(url).includes("openalex") ? 503 : 429 });
+  });
+  await assert.rejects(() => discover("test", (status) => {
+    if (status.includes("Retrying")) controller.abort();
+  }, undefined, controller.signal), { name: "AbortError" });
+  assert.equal(calls, 4);
 });
