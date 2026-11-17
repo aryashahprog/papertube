@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
 permissions:
   contents: read
   pages: write
@@ -21,6 +23,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Refresh featured snapshots
+        if: github.event_name != 'push'
+        continue-on-error: true
+        env:
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+        run: npm run prebuild:topics -- --refresh
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
