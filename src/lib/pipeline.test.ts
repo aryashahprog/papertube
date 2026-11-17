@@ -720,7 +720,7 @@ test("OpenAlex snapshot canons include foundational diffusion, CRISPR and transf
   const diffusion = load("diffusion-models");
   for (const topic of examples) {
     const data = load(topic.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
-    assert.equal(data.source, "OpenAlex");
+    assert.equal(data.source, topic === "GLP-1 drugs" ? "Europe PMC" : "OpenAlex");
     assert.equal(startHere(data.papers, topic).length, 5, topic);
   }
   const titles = startHere(diffusion.papers, "diffusion models")
