@@ -19,7 +19,22 @@ import {
   type Dataset,
   type Paper,
 } from "./pipeline";
-import { comparisonDate, unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+import { seedFollow, comparisonDate, unreadTotal, cleanRecentPapers, unreadPapers, readCountCache, safeStorage, countNewPapers, readFollows, recentPapers, writeFollows } from "./follows";
+test("following seeds current recent ids without advancing the visit and tolerates errors", async () => {
+  const original = globalThis.fetch;
+  const follow = { q: "test", label: "test", lastSeenAt: "2025-01-02", followedAt: "2025-01-02", seenIds: [] };
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 1 }, results: [{ id: "same-day", title: "Already visible", publication_date: "2025-01-02", publication_year: 2025 }] }))) as typeof fetch;
+    const seeded = await seedFollow(follow);
+    assert.deepEqual(seeded.seenIds, ["same-day"]);
+    assert.equal(seeded.lastSeenAt, follow.lastSeenAt);
+    assert.equal(await countNewPapers(seeded), 0);
+    globalThis.fetch = (async () => new Response(JSON.stringify({ meta: { count: 0 }, results: [] }))) as typeof fetch;
+    assert.deepEqual((await seedFollow(follow)).seenIds, []);
+    globalThis.fetch = (async () => new Response("", { status: 503 })) as typeof fetch;
+    assert.deepEqual(await seedFollow(follow), follow);
+  } finally { globalThis.fetch = original; }
+});
 test("coarse publication dates use period end for since, not the fully specified today cap", () => {
   assert.equal(comparisonDate("2024-02"), "2024-02-29");
   assert.equal(comparisonDate("2025"), "2025-12-31");

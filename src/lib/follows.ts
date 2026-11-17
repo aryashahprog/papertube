@@ -152,3 +152,9 @@ export async function recentBatch(follow: Follow) {
   const batch = await recentWorks(follow, true);
   return { papers: unreadPapers(batch.papers, follow.seenIds), total: unreadTotal(batch.count, batch.papers, follow), searchUrl: batch.searchUrl };
 }
+export async function seedFollow(follow: Follow): Promise<Follow> {
+  try {
+    const papers = await recentPapers(follow);
+    return { ...follow, seenIds: [...new Set([...follow.seenIds, ...papers.map((p) => p.id)])], seenPapers: [...(follow.seenPapers || []), ...papers.filter((p) => p.date).map((p) => ({ id: p.id, date: p.date! }))] };
+  } catch { return follow; }
+}

@@ -18,7 +18,7 @@ import {
 import "./style.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
-import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
+import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
 const colors = [
   "#beff7a",
   "#a5a0ff",
@@ -419,7 +419,22 @@ function App() {
                   q: normalizeQuery(q), label: q, followedAt: now, lastSeenAt: now,
                   seenIds: [],
                 }];
-                if (writeFollows(followsStorage, updated)) setFollows(updated);
+                if (writeFollows(followsStorage, updated)) {
+                  setFollows(updated);
+                  if (!followed) {
+                    const added = updated[updated.length - 1];
+                    void seedFollow(added).then((seeded) => {
+                      const latest = readFollows(followsStorage);
+                      const current = latest.find((f) => f.q === added.q);
+                      if (!current || current.followedAt !== added.followedAt || current.lastSeenAt !== added.lastSeenAt) return;
+                      const next = latest.map((f) => f.q === added.q ? seeded : f);
+                      if (writeFollows(followsStorage, next)) {
+                        markTopicVisited(added, seeded);
+                        setFollows(next);
+                      }
+                    });
+                  }
+                }
               }}>{followed ? "Following ✓" : "Follow topic"}</button>
               <div className="toggle" aria-label="Paper selection">
                 <button
