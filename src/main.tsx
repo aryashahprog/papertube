@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   discover,
+  invalidQueryMessage,
   examples,
   slug,
   cutoff,
@@ -75,6 +76,11 @@ function App() {
     setError("");
     setStatus("Looking for papers…");
     document.title = `${q} — PaperTube`;
+    if (!/[\p{L}\p{N}]/u.test(q)) {
+      setError(invalidQueryMessage);
+      setLoading(false);
+      return;
+    }
     const update = (s: string, d?: Dataset) => {
       if (active) {
         setStatus(s);
@@ -306,11 +312,13 @@ function App() {
             <div>
               <div className="eyebrow">YOUR FIELD GUIDE TO</div>
               <h1>{q}</h1>
-              <p className="stats">
-                {data
-                  ? `${papers.length} papers · ${themes.length} themes${papers.length ? ` · ${min}–${max}` : ""}`
-                  : "Connecting the literature…"}
-              </p>
+              {!error && (
+                <p className="stats">
+                  {data
+                    ? `${papers.length} papers · ${themes.length} themes${papers.length ? ` · ${min}–${max}` : ""}`
+                    : "Connecting the literature…"}
+                </p>
+              )}
             </div>
             <div className="actions">
               <div className="toggle" aria-label="Paper selection">
@@ -401,7 +409,9 @@ function App() {
           {error && (
             <div role="alert" className="empty">
               {error}
-              <button onClick={() => location.reload()}>Try again ↗</button>
+              {error !== invalidQueryMessage && (
+                <button onClick={() => location.reload()}>Try again ↗</button>
+              )}
             </div>
           )}
           {data && !!papers.length && (

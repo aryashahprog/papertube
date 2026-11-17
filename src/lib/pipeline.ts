@@ -208,11 +208,15 @@ const stop = new Set(
     " ",
   ),
 );
-const normalized = (s: string) =>
+const words = (s: string) =>
   clean(s)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+const normalized = (s: string) =>
+  words(s)
     .split(/\s+/)
     .map((w) => (w.length > 4 ? w.replace(/s$/, "") : w))
     .join(" ");
@@ -220,18 +224,44 @@ function queryTokens(query: string) {
   const ignored = new Set(
     "a an the and or of to in on for with by from using via as at is are this that into its it".split(" "),
   );
-  return normalized(query)
+  return normalized(contentQuery(query))
     .split(" ")
     .filter((t) => t && !ignored.has(t));
 }
+const contains = (text: string, term: string) =>
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u.test(term)
+    ? text.includes(term)
+    : (" " + text + " ").includes(" " + term + " ");
+const filler = new Set([
+  ...stop,
+  ..."what how why who which when where do does did can could would should be been being was were most important best key papers explain explaining explained about tell me us please they their than beat etc".split(" "),
+]);
+function isContentQuery(query: string) {
+  const tokens = words(query).split(" ");
+  return tokens.length > 4 || query.includes("?") ||
+    /^(what|how|why|which|who|when|where|is|are|can|does|do)$/.test(tokens[0]);
+}
+function contentQuery(query: string) {
+  if (examples.some((topic) => words(topic) === words(query))) return query;
+  if (!isContentQuery(query)) return query;
+  const tokens = words(query).split(" ");
+  const terms = tokens.filter((word) => !filler.has(word));
+  return terms.join(" ") || words(query);
+}
+export const invalidQueryMessage =
+  "Type a topic in words — like “sleep and memory”.";
 export function matchesQuery(p: Paper, query: string) {
-  const terms = queryTokens(query);
+  const terms = [...new Set(queryTokens(query))];
   if (!terms.length) return false;
-  const words = new Set(normalized(p.title + " " + p.abstract).split(" "));
-  const title = new Set(normalized(p.title).split(" "));
-  const topics = new Set(normalized((p.topics || []).join(" ")).split(" "));
-  return terms.every((t) => words.has(t)) ||
-    (terms.some((t) => title.has(t)) && terms.every((t) => topics.has(t)));
+  const texts = [p.title, p.abstract].map(normalized);
+  if (texts.some((text) => contains(text, normalized(query)))) return true;
+  const required = isContentQuery(query) && terms.length > 3
+    ? Math.ceil(terms.length * 0.6)
+    : terms.length;
+  const topics = normalized((p.topics || []).join(" "));
+  return terms.filter((term) => contains(texts.join(" "), term)).length >= required ||
+    (terms.some((term) => contains(texts[0], term)) &&
+      terms.every((term) => contains(topics, term)));
 }
 export function coherence(papers: Paper[], query: string) {
   const ignored = new Set(
@@ -307,7 +337,7 @@ export function startHere(papers: Paper[], query?: string) {
   const terms = query === undefined ? [] : queryTokens(query);
   return papers.filter((p) =>
     p.coherent !== false &&
-    (query === undefined || terms.some((t) => normalized(p.title).split(" ").includes(t))),
+    (query === undefined || terms.some((t) => contains(normalized(p.title), t))),
   ).slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
@@ -469,6 +499,8 @@ export async function discover(
   progress: (s: string, partial?: Dataset) => void = () => {},
   key?: string,
 ): Promise<Dataset> {
+  if (!words(query)) throw new Error(invalidQueryMessage);
+  const searchQuery = contentQuery(query);
   progress("Searching OpenAlex…");
   try {
     const select =
@@ -476,7 +508,7 @@ export async function discover(
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({
-        search: query,
+        search: searchQuery,
         select,
         mailto,
         ...(key ? { api_key: key } : {}),
@@ -518,7 +550,7 @@ export async function discover(
     const base =
       "https://api.crossref.org/works?" +
       new URLSearchParams({
-        query,
+        query: searchQuery,
         rows: "100",
         select:
           "DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score",
@@ -534,10 +566,10 @@ export async function discover(
       const cited = await json(
         base + "&sort=is-referenced-by-count&order=desc",
       );
-      const terms = query.toLowerCase().match(/[a-z0-9]+/g) || [];
+      const terms = normalized(searchQuery).split(" ").filter(Boolean);
       const extra = (cited.message.items.map(cross) as Paper[]).filter(
         (p) =>
-          terms.filter((t) => p.title.toLowerCase().includes(t)).length >=
+          terms.filter((t) => contains(normalized(p.title), t)).length >=
           Math.max(1, Math.ceil(terms.length * 0.6)),
       );
       works = works.concat(extra);

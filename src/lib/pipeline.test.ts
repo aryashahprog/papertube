@@ -10,6 +10,8 @@ import {
   matchesQuery,
   startHere,
   playThrough,
+  examples,
+  invalidQueryMessage,
   type Dataset,
   type Paper,
 } from "./pipeline";
@@ -44,6 +46,150 @@ const p: Paper = {
   references: [],
   rank: 0,
 };
+test("Unicode queries match accents and unspaced Chinese titles", () => {
+  assert.ok(matchesQuery({ ...p, title: "基于机器学习的图像研究" }, "机器学习"));
+  assert.ok(matchesQuery({ ...p, title: "Protein and proteine folding" }, "protéine"));
+  assert.ok(matchesQuery({ ...p, title: "La protéine" }, "proteine"));
+  assert.ok(matchesQuery({ ...p, title: "La prote\u0301ine" }, "protéine"));
+  assert.ok(!matchesQuery({ ...p, title: "Unrelated work" }, "机器学习"));
+  assert.ok(!matchesQuery(p, ""));
+});
+test("questions match content across title and abstract without accepting unrelated papers", () => {
+  const query = "what are the most important papers explaining how diffusion models generate images and why they beat GANs";
+  assert.ok(matchesQuery({
+    ...p,
+    title: "Diffusion for image synthesis",
+    abstract: "We generate images and outperform GANs.",
+  }, query));
+  assert.ok(!matchesQuery({ ...p, title: "Important papers about marine biology" }, query));
+  assert.ok(matchesQuery({ ...p, title: "Sleep memory consolidation" }, "what are the best papers about sleep and memory"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
+});
+test("long query coverage is independent of capitalization", () => {
+  const relevant = { ...p, title: "Graph network applications", abstract: "Neural methods for drug discovery" };
+  for (const query of ["graph neural network drug discovery", "Graph Neural Network Drug Discovery"]) {
+    assert.ok(matchesQuery(relevant, query));
+    assert.ok(!matchesQuery({ ...p, title: "Graph drawing algorithms" }, query));
+  }
+  for (const query of ["graph neural network", "Graph Neural Network"])
+    assert.ok(matchesQuery(relevant, query));
+});
+test("short topic phrases retain meaningful stop words", () => {
+  assert.ok(matchesQuery({ ...p, title: "Large language model capabilities" }, "large language models"));
+  assert.ok(!matchesQuery({ ...p, title: "Large language corpora" }, "large language models"));
+  assert.ok(!matchesQuery({ ...p, title: "Language acquisition" }, "language models"));
+  assert.ok(matchesQuery({ ...p, title: "Protein folding analysis" }, "protein folding analysis"));
+  assert.ok(!matchesQuery({ ...p, title: "Protein folding" }, "protein folding analysis"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "sleep and memory?"));
+  assert.ok(matchesQuery({ ...p, title: "Sleep memory" }, "how sleep and memory"));
+});
+test("rewritten questions retain verbatim matches and require all short content terms", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const [query, title] of [
+      ["a theory of human motivation", "A theory of human motivation"],
+      ["sleep and memory?", "Sleep and memory"],
+    ]) {
+      assert.ok(matchesQuery({ ...p, title }, query));
+      globalThis.fetch = (async () => Response.json({
+        meta: { count: 1 },
+        results: [{ id: "test", title, publication_year: 2020 }],
+      })) as typeof fetch;
+      assert.equal((await discover(query)).papers.length, 1);
+    }
+    assert.ok(matchesQuery({ ...p, title: "Motivation", abstract: "A theory" }, "a theory of human motivation"));
+    assert.ok(!matchesQuery({ ...p, title: "Sleep alone" }, "sleep and memory?"));
+    assert.ok(!matchesQuery({ ...p, title: "Unrelated work" }, "sleep and memory?"));
+    assert.ok(matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
+    assert.ok(!matchesQuery({ ...p, title: "Quantum studies of error correction" }, "quantum error correction theory"));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test("featured topics retain main's any-order token and topic matches", () => {
+  const previous = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).map((w) => w.length > 4 ? w.replace(/s$/, "") : w).join(" ");
+  for (const topic of examples) {
+    const data: Dataset = JSON.parse(readFileSync(new URL(`../../public/data/${topic.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.json`, import.meta.url), "utf8"));
+    const terms = previous(topic).split(" ");
+    for (const paper of data.papers) {
+      const text = new Set(previous(paper.title + " " + paper.abstract).split(" "));
+      const title = new Set(previous(paper.title).split(" "));
+      const topics = new Set(previous((paper.topics || []).join(" ")).split(" "));
+      assert.equal(matchesQuery(paper, topic), terms.every((term) => text.has(term)) ||
+        (terms.some((term) => title.has(term)) && terms.every((term) => topics.has(term))), topic);
+    }
+  }
+});
+test("Unicode token and topic matching also keeps unspaced titles in Start here", () => {
+  const chinese = { ...p, title: "基于图像的方法", topics: ["机器学习与图像分析"] };
+  assert.ok(matchesQuery(chinese, "机器学习 图像"));
+  assert.ok(!matchesQuery({ ...chinese, topics: [] }, "机器学习 图像"));
+  assert.deepEqual(startHere([chinese], "机器学习 图像"), [chinese]);
+  assert.ok(matchesQuery({ ...p, title: "La protéine", abstract: "Folding mechanisms" }, "proteine folding"));
+});
+test("punctuation-only queries reject before contacting either index", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = (async () => { calls++; throw new Error("Unexpected fetch"); }) as typeof fetch;
+    for (const query of ["???!!!", "", "   "])
+      await assert.rejects(() => discover(query), { message: invalidQueryMessage });
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test("both indexes receive cleaned question content", async () => {
+  const original = globalThis.fetch;
+  const searches: string[] = [];
+  try {
+    globalThis.fetch = (async (url) => {
+      const parsed = new URL(String(url));
+      searches.push(parsed.searchParams.get("search") || parsed.searchParams.get("query") || "");
+      return parsed.hostname.includes("openalex")
+        ? new Response("", { status: 503 })
+        : Response.json({ message: { items: [], "total-results": 0 } });
+    }) as typeof fetch;
+    assert.deepEqual((await discover("what are the best papers explaining sleep and memory")).papers, []);
+    assert.ok(searches.length > 3);
+    assert.ok(searches.every((query) => query === "sleep memory"));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+test("Crossref citation-ranked results retain Unicode topic matches", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const [query, title] of [
+      ["机器学习", "基于机器学习的图像研究"],
+      ["protéine", "La proteine et ses fonctions"],
+    ]) {
+      let citationRequests = 0;
+      globalThis.fetch = (async (url) => {
+        const parsed = new URL(String(url));
+        if (parsed.hostname.includes("openalex"))
+          return new Response("", { status: 503 });
+        const cited = parsed.searchParams.get("sort") === "is-referenced-by-count";
+        if (cited) citationRequests++;
+        return Response.json({ message: {
+          "total-results": 0,
+          items: cited ? [title, "Unrelated biology"].map((name, i) => ({
+            DOI: `10/test-${i}`,
+            title: [name],
+            published: { "date-parts": [[2020]] },
+            "is-referenced-by-count": 1000,
+          })) : [],
+        } });
+      }) as typeof fetch;
+      const result = await discover(query);
+      assert.equal(result.source, "Crossref");
+      assert.equal(citationRequests, 1);
+      assert.deepEqual(result.papers.map((paper) => paper.title), [title]);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("deduplication, junk filtering, empty results, ranking", () => {
   const d = finish(
     [
