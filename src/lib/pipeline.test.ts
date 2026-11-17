@@ -206,6 +206,7 @@ test("abstract reconstruction and finding extraction", () => {
 test("abstract sanity retains distinctive title matches and rejects unrelated or missing text", () => {
   assert.equal(validatedAbstract("Graph networks", "<p>These graph networks improve classification.</p>"), "These graph networks improve classification.");
   assert.equal(validatedAbstract("Neural networks", "A neural network predicts protein structures."), "A neural network predicts protein structures.");
+  assert.equal(validatedAbstract("AI methods", "We evaluate AI across benchmarks."), "We evaluate AI across benchmarks.");
   assert.equal(validatedAbstract("Graph networks", "The study presents a new model for sleep."), "");
   assert.equal(validatedAbstract("Graph networks", ""), "");
   assert.equal(validatedAbstract("", "Graph networks improve classification."), "");

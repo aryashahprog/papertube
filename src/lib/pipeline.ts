@@ -245,7 +245,7 @@ export function validatedAbstract(title = "", value = "") {
   if (/```|\b(?:docker\s+(?:run|pull|build|compose)|pip3?\s+install|python\s+-m\s+pip\s+install|npm\s+(?:install|ci)|git\s+clone)\b/i.test(value) ||
       /(?:^|\n)\s*(?:#{1,6}\s*|\d+(?:\.\d+)*[.)]?\s+)?(?:usage|installation|getting started|system requirements|how to (?:use|install))\s*(?:[:\n]|$)/i.test(value)) return "";
   const abstract = cleanAbstract(value);
-  const terms = normalized(title).split(" ").filter(t => t.length >= 3 && /\p{L}/u.test(t) && !stop.has(t));
+  const terms = normalized(title).split(" ").filter(t => t.length >= 2 && /\p{L}/u.test(t) && !stop.has(t) && !stop.has(t + "s"));
   return terms.some(term => contains(normalized(abstract), term)) ? abstract : "";
 }
 const filler = new Set([
