@@ -13,7 +13,7 @@ export function takeaway(abstract: string) {
 }
 export function cutoff() { const d = new Date(); d.setMonth(d.getMonth()-18); return d.toISOString().slice(0,10) }
 function oa(w: Raw): Paper { const abstract = reconstruct(w.abstract_inverted_index); return { id:w.id, doi:w.doi || '', title:clean(w.title), year:w.publication_year || 0, citations:w.cited_by_count || 0, relevance:w.relevance_score || 0, authors:(w.authorships || []).map((a:Raw) => a.author?.display_name).filter(Boolean), venue:w.primary_location?.source?.display_name || '', url:w.doi || w.primary_location?.landing_page_url || w.id, pdf:w.best_oa_location?.pdf_url || '', abstract, takeaway:takeaway(abstract), theme:w.primary_topic?.display_name || 'Other', references:w.referenced_works || [], rank:0 } }
-function cross(w: Raw): Paper { const abstract=clean(w.abstract); const doi=w.DOI || ''; return {id:'https://doi.org/'+doi,doi, title:clean(w.title?.[0]), year:(w.published?.['date-parts']?.[0]?.[0]) || 0,citations:w['is-referenced-by-count'] || 0,relevance:w.score || 0,authors:(w.author || []).map((a:Raw) => [a.given,a.family].filter(Boolean).join(' ')),venue:w['container-title']?.[0] || '',url:w.URL || 'https://doi.org/'+doi,pdf:(w.link || []).find((l:Raw)=>l['content-type']==='application/pdf' && l['content-version']==='vor')?.URL || '',abstract,takeaway:takeaway(abstract),theme:'Other',references:[],rank:0} }
+function cross(w: Raw): Paper { const abstract=clean(w.abstract); const doi=w.DOI || ''; return {id:'https://doi.org/'+doi,doi, title:clean(w.title?.[0]), year:(w.published?.['date-parts']?.[0]?.[0]) || 0,citations:w['is-referenced-by-count'] || 0,relevance:w.score || 0,authors:(w.author || []).map((a:Raw) => [a.given,a.family].filter(Boolean).join(' ')),venue:w['container-title']?.[0] || '',url:w.URL || 'https://doi.org/'+doi,pdf:'',abstract,takeaway:takeaway(abstract),theme:'Other',references:[],rank:0} }
 const stop = new Set('a an the and or of to in on for with by from using based new study analysis research model models approach via as at is are we this that into its it paper review human'.split(' '))
 export function cluster(papers: Paper[], query: string) {
   const ignored=new Set([...stop,...query.toLowerCase().split(/[^a-z]+/)]); const tokens=(p:Paper)=>[...new Set((p.title.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(w=>!ignored.has(w)))]; const freq=new Map<string,number>(); papers.forEach(p=>tokens(p).forEach(w=>freq.set(w,(freq.get(w)||0)+1)))
@@ -39,6 +39,10 @@ export async function discover(query: string, progress: (s:string, partial?:Data
     const result=finish(accumulated,'OpenAlex',query,total); progress(`Mapped ${new Set(result.papers.map(p=>p.theme)).size} themes · Selecting abstract excerpts…`,result); return result
   } catch {
     progress('OpenAlex unavailable · Searching the backup index…')
-    const d=await json('https://api.crossref.org/works?'+new URLSearchParams({query,rows:'100',select:'DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score',mailto})); const result=finish(d.message.items.map(cross),'Crossref',query,d.message['total-results']); progress(`Found ${result.papers.length} papers · Mapping themes…`,result); return result
+    const base='https://api.crossref.org/works?'+new URLSearchParams({query,rows:'100',select:'DOI,title,author,published,container-title,is-referenced-by-count,abstract,URL,link,score',mailto})
+    const d=await json(base); let works=d.message.items.map(cross) as Paper[]
+    progress(`Found ${works.length} records · Checking influential papers…`,finish(works,'Crossref',query,d.message['total-results']))
+    try{const cited=await json(base+'&sort=is-referenced-by-count&order=desc'); const terms=query.toLowerCase().match(/[a-z0-9]+/g)||[]; const extra=(cited.message.items.map(cross) as Paper[]).filter(p=>terms.filter(t=>p.title.toLowerCase().includes(t)).length>=Math.max(1,Math.ceil(terms.length*.6))); works=works.concat(extra)}catch{}
+    const result=finish(works,'Crossref',query,d.message['total-results']); progress(`Found ${result.papers.length} papers · Mapping themes…`,result); return result
   }
 }
