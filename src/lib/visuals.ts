@@ -170,13 +170,14 @@ export function paperSketch(paper: Pick<Paper, "title">): PaperSketch {
     kind: "quantum", labels: ["Encode", "Check errors", "Recover"],
     description: "Quantum error correction: encode information across physical qubits, check for errors, and recover logical information.",
   };
-  if (/randomi[sz]ed|placebo.controlled/.test(title) && /trial|patients|adults|children|clinical/.test(title)) return {
-    kind: "trial", labels: ["Participants", "Study groups", "Compare outcomes"],
-    description: "Trial design: assign participants to treatment and comparison groups, then compare outcomes. No treatment effect is implied.",
-  };
+  // Reviews can mention randomized trials without assigning participants themselves.
   if (/systematic review|meta.analysis|\bsurvey\b|\breview\b/.test(title)) return {
     kind: "review", labels: ["Studies", "Bring together", "Evidence"],
     description: "Evidence review: bring multiple studies together to examine what is known. This is a study-design sketch, not a result.",
+  };
+  if (/randomi[sz]ed|placebo.controlled/.test(title) && /trial|patients|adults|children|clinical/.test(title)) return {
+    kind: "trial", labels: ["Participants", "Study groups", "Compare outcomes"],
+    description: "Trial design: assign participants to treatment and comparison groups, then compare outcomes. No treatment effect is implied.",
   };
   if (/semaglutide|liraglutide|tirzepatide/.test(title) ||
       (/glp.?1|glucagon.like peptide.?1/.test(title) && /receptor|agonist/.test(title))) return {

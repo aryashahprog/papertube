@@ -74,6 +74,8 @@ test("fallbacks explain a mechanism or study design, never chunks of a title", (
   assert.deepEqual(dit.labels, ["Noisy patches", "Transformer", "Predict noise"]);
   assert.equal(paperSketch({ title: "Semaglutide in adults: a randomised placebo-controlled trial" }).kind, "trial");
   assert.equal(paperSketch({ title: "GLP-1 receptor agonists: a systematic review and meta-analysis" }).kind, "review");
+  assert.equal(paperSketch({ title: "GLP-1 receptor agonists: a systematic review of randomized controlled trials in patients with diabetes" }).kind, "review");
+  assert.equal(paperSketch({ title: "Semaglutide in adults: a meta-analysis of placebo-controlled trials" }).kind, "review");
   assert.equal(paperSketch({ title: "Glucagon-like peptide-1 receptor: mechanisms and advances in therapy" }).kind, "receptor");
   assert.equal(paperSketch({ title: "Hallmarks of aging: An expanding universe" }).kind, "aging");
   assert.equal(paperSketch({ title: "The Value of Health and Longevity" }).kind, "study");
