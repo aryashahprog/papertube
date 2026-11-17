@@ -12,6 +12,7 @@ npm run preview # localhost:4173/papertube/
 npm test
 npm run prebuild:topics # refresh eight featured-topic public snapshots
 npm run enrich:topics # enrich DOI abstracts/types via Semantic Scholar and Europe PMC
+npm run prebuild:topics -- --source europe-pmc --topic "GLP-1 drugs" --query '(TITLE_ABS:"GLP-1" OR TITLE_ABS:"glucagon-like peptide-1" OR TITLE_ABS:semaglutide OR TITLE_ABS:tirzepatide OR TITLE_ABS:liraglutide) AND (PUB_TYPE:"research-article" OR PUB_TYPE:"review" OR PUB_TYPE:"Clinical Trial")' --pages 2
 ```
 
 Enrichment does not use OpenAlex. Cached metadata is applied first, then requests prioritize each topic's top 40 ranked papers plus Start here. Europe PMC is tried first for missing abstracts with one-second spacing; uncached gaps then use Semantic Scholar batches of up to 500 DOI identifiers with a minute between batches. HTTP 429 retries use minute-scale backoff and Retry-After support. Responses (including misses) are cached in `~/.papertube-enrichment.json`; rerunning resumes without repeating successful requests. Set `PAPERTUBE_ENRICH_CACHE` to choose another cache file, or remove the cache deliberately to refresh it. Snapshots are saved after each successful response, so partial enrichment survives failures; their original index freshness dates are preserved. Failures are logged and produce a nonzero exit status without discarding saved progress.

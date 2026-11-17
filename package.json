@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "prebuild:topics": "tsx scripts/topics.ts",
     "enrich:topics": "tsx scripts/enrich.ts",
-    "test": "tsx --test src/lib/pipeline.test.ts scripts/enrich.test.ts"
+    "test": "tsx --test src/lib/pipeline.test.ts scripts/enrich.test.ts scripts/europe-pmc.test.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

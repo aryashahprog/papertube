@@ -39,7 +39,7 @@ export interface Paper {
 }
 export interface Dataset {
   papers: Paper[];
-  source: "OpenAlex" | "Crossref";
+  source: "OpenAlex" | "Crossref" | "Europe PMC";
   fetchedAt: string;
   total: number;
 }
@@ -504,7 +504,7 @@ export function finish(
   );
   papers.sort((a, b) => b.rank - a.rank);
   coherence(papers, query);
-  if (source === "Crossref") cluster(papers, query);
+  if (source !== "OpenAlex") cluster(papers, query);
   const counts = new Map<string, number>();
   papers.forEach((p) => counts.set(p.theme, (counts.get(p.theme) || 0) + 1));
   const keep = [...counts]

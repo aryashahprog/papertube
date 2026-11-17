@@ -146,7 +146,7 @@ function App() {
         if (!result) result = await discover(q, update, undefined, controller.signal);
         result = { ...finish(result.papers, result.source, q, result.total), fetchedAt: result.fetchedAt };
         result = { ...result, papers: result.papers.map(p => ({ ...p, year: publicationYear(p.year) })) };
-        if (result.source === "Crossref") {
+        if (result.source !== "OpenAlex") {
           result = { ...result, papers: result.papers.map(p => ({ ...p })) };
           cluster(result.papers, q);
         }
@@ -506,6 +506,11 @@ function App() {
               clusters; abstract coverage varies.
             </p>
           )}
+          {data?.source === "Europe PMC" && (
+            <p className="backup">
+              ↳ Research index: Europe PMC. Themes are title-keyword clusters.
+            </p>
+          )}
           {data && (
             <p className="backup">
               Index snapshot ·{" "}
@@ -804,7 +809,7 @@ function App() {
           <i />
         </a>
         <p>
-          Data from OpenAlex (CC0)
+          {data?.source === "Europe PMC" ? "Data from Europe PMC" : "Data from OpenAlex (CC0)"}
           {data?.source === "Crossref" ? " · Backup results from Crossref" : ""}
           .<br />
           Takeaways are the key sentence from each abstract. Always read the
