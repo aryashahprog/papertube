@@ -18,10 +18,12 @@ import {
 } from "./lib/pipeline";
 import "@fontsource-variable/inter";
 import "./style.css";
+import "./visuals.css";
 import { slideDuration } from "./lib/tv";
 import { tourPosition } from "./lib/tv-position";
 import { createAbstractHydrator } from "./lib/abstracts";
 import { cacheStorage, followsStorage, countNewPapers, markTopicVisited, normalizeQuery, readFollows, recentBatch, seedFollow, relativeDate, writeFollows, type Follow, type RecentPaper } from "./lib/follows";
+import { PaperVisual } from "./PaperVisual";
 const colors = [
   "#bed6ae",
   "#a3c09a",
@@ -587,6 +589,7 @@ function App() {
                           {compact(p.citations)} citations
                         </span>
                       </div>
+                      <PaperVisual paper={p} />
                       <button
                         className="title-button"
                         onClick={() => setSelected(p)}
@@ -786,6 +789,7 @@ function App() {
                           onClick={() => setSelected(p)}
                         >
                           <span className="row-year">{p.year}</span>
+                          <PaperVisual paper={p} compact />
                           <span>
                             <strong>{p.title}</strong>
                             {p.takeaway && (
@@ -882,6 +886,7 @@ function App() {
               {selected.venue && ` · ${selected.venue}`}
             </p>
             <span className="theme-label">{selected.theme}</span>
+            <PaperVisual key={selected.id} paper={selected} sourceLink />
             {links(selected)}
             <h3>Abstract</h3>
             <p className="abstract">
@@ -914,7 +919,10 @@ function App() {
           {current ? (
             <>
               <article key={current.id} className="tv-slide">
-                <div className="tv-year">{current.year}</div>
+                <div className="tv-visual-column">
+                  <div className="tv-year">{current.year}</div>
+                  <PaperVisual paper={current} sourceLink />
+                </div>
                 <div>
                   <span
                     className="theme-label"
