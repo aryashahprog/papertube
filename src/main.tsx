@@ -577,6 +577,22 @@ function App() {
                         }),
                       )}
                       {[...papers].reverse().map((p) => (
+                        <circle
+                          key={p.id}
+                          className="node-halo"
+                          aria-hidden="true"
+                          cx={x(p)}
+                          cy={y(p)}
+                          r={5 + Math.log1p(p.citations) * 0.95}
+                          fill={themeColor(p)}
+                          opacity=".15"
+                          filter="url(#glow)"
+                          onMouseEnter={() => setHover(p)}
+                          onMouseLeave={() => setHover(null)}
+                          onClick={() => setSelected(p)}
+                        />
+                      ))}
+                      {[...papers].reverse().map((p) => (
                         <g
                           key={p.id}
                           role="button"
@@ -594,15 +610,6 @@ function App() {
                             }
                           }}
                         >
-                          <circle
-                            className="node-halo"
-                            cx={x(p)}
-                            cy={y(p)}
-                            r={5 + Math.log1p(p.citations) * 0.95}
-                            fill={themeColor(p)}
-                            opacity=".15"
-                            filter="url(#glow)"
-                          />
                           <circle
                             className="node"
                             cx={x(p)}
