@@ -31,6 +31,8 @@ export interface Paper {
   references: string[];
   rank: number;
   coherent?: boolean;
+  workType?: string;
+  retracted?: boolean;
 }
 export interface Dataset {
   papers: Paper[];
@@ -172,6 +174,8 @@ function oa(w: Raw): Paper {
     topics: [...(w.topics || []), ...(w.concepts || [])]
       .map((t: Raw) => clean(t.display_name))
       .filter(Boolean),
+    workType: w.type,
+    retracted: w.is_retracted,
     references: w.referenced_works || [],
     rank: 0,
   };
@@ -351,12 +355,19 @@ export function finish(
   query: string,
   total: number,
 ): Dataset {
+  const excludedTypes = new Set([
+    "dataset", "paratext", "peer-review", "erratum", "other", "retraction",
+    "software", "supplementary-materials", "study-registration",
+    "conference-abstract", "grant", "proposal",
+  ]);
   const unique = new Map<string, Paper>();
   input
     .filter(
       (p) =>
         p.title &&
         p.year > 0 &&
+        !p.retracted &&
+        !excludedTypes.has(p.workType || "") &&
         matchesQuery(p, query) &&
         !/\b(retract(ed|ion)|erratum|corrigendum|correction to|table of contents|front matter|back matter|editorial board|references|notations|review (for|of))\b/i.test(
           p.title,
@@ -365,10 +376,37 @@ export function finish(
     .forEach((p) => {
       const k = (p.doi || p.id).toLowerCase().replace("https://doi.org/", "");
       const existing = unique.get(k);
-      if (!existing) unique.set(k, { ...p });
+      if (!existing || p.citations > existing.citations)
+        unique.set(k, { ...p, relevance: Math.max(p.relevance, existing?.relevance ?? -1) });
       else existing.relevance = Math.max(existing.relevance, p.relevance);
     });
-  const papers = [...unique.values()];
+  const publications: { paper: Paper; titles: Set<string> }[] = [];
+  const compactTitle = (s: string) =>
+    clean(s).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  for (const p of unique.values()) {
+    const author = (p.authors[0] || "").trim();
+    const surname = author.includes(",")
+      ? author.split(",")[0]
+      : author.split(/\s+/).at(-1) || "";
+    const title = compactTitle(p.title);
+    const keys = [title + ":year:" + p.year];
+    if (surname) keys.push(title + ":author:" + compactTitle(surname));
+    const matches = publications.filter((group) => keys.some((key) => group.titles.has(key)));
+    let candidate = p;
+    const titles = new Set(keys);
+    for (const group of matches) {
+      for (const key of group.titles) titles.add(key);
+      const existing = group.paper;
+      const relevance = Math.max(candidate.relevance, existing.relevance);
+      if (Number(!!existing.doi) > Number(!!candidate.doi) ||
+          (!!existing.doi === !!candidate.doi && existing.citations > candidate.citations))
+        candidate = existing;
+      candidate = { ...candidate, relevance };
+      publications.splice(publications.indexOf(group), 1);
+    }
+    publications.push({ paper: { ...candidate }, titles });
+  }
+  const papers = publications.map((group) => group.paper);
   const scores = papers
     .map((p) => p.relevance)
     .filter((r) => r >= 0)
@@ -434,7 +472,7 @@ export async function discover(
   progress("Searching OpenAlex…");
   try {
     const select =
-      "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works";
+      "id,doi,title,publication_year,cited_by_count,relevance_score,authorships,primary_location,best_oa_location,primary_topic,topics,concepts,abstract_inverted_index,referenced_works,type,is_retracted";
     const params = (extra: Record<string, string>) =>
       "https://api.openalex.org/works?" +
       new URLSearchParams({

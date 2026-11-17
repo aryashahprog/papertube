@@ -85,7 +85,7 @@ function App() {
       try {
         let result: Dataset | undefined;
         try {
-          const cached = sessionStorage.getItem("pt-v3:" + q.toLowerCase());
+          const cached = sessionStorage.getItem("pt-v4:" + q.toLowerCase());
           if (cached) result = JSON.parse(cached);
         } catch {}
         if (!result && examples.some((t) => slug(t) === slug(q))) {
@@ -104,7 +104,7 @@ function App() {
           setData(result);
           try {
             sessionStorage.setItem(
-              "pt-v3:" + q.toLowerCase(),
+              "pt-v4:" + q.toLowerCase(),
               JSON.stringify(result),
             );
           } catch {}
