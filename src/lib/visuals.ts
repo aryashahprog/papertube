@@ -72,7 +72,11 @@ export function paperSketch(paper: Pick<Paper, "title">): PaperSketch {
     kind: "diffusion", labels: ["Noise", "Denoise", "Image"],
     description: "Image diffusion: a learned model removes noise step by step to form an image.",
   };
-  if (/\b(transformers?|bert)\b|self.attention|multi.head attention/.test(title) && !/power|voltage|winding|electri/.test(title)) return {
+  // "Transformer" also names electrical hardware. Require positive ML context
+  // instead of trying to enumerate every electrical use of the word.
+  if (/\bbert\b|self.attention|multi.head attention/.test(title) ||
+      titleKey(title) === "attention is all you need" ||
+      (/\btransformers?\b/.test(title) && /\b(neural|learning|language|vision|image|images|text|nlp|attention|pretraining|pre training|segmentation|detection|recognition)\b/.test(title))) return {
     kind: "attention", labels: ["Input pieces", "Connections", "Context"],
     description: "Attention: relate pieces of an input to one another to build context.",
   };

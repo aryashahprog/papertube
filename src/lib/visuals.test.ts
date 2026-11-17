@@ -33,6 +33,9 @@ test("all featured papers have a nonempty, accessible visual fallback without ne
 test("sketch selection follows the paper, not the user's query or unrelated homonyms", () => {
   assert.equal(paperSketch({ title: "Attention deficit in children" }).kind, "concepts");
   assert.equal(paperSketch({ title: "Power transformers and electrical insulation" }).kind, "concepts");
+  assert.equal(paperSketch({ title: "Vegetable oils for liquid-filled transformers" }).kind, "concepts");
+  assert.equal(paperSketch({ title: "Monolithic transformers for silicon RF IC design" }).kind, "concepts");
+  assert.equal(paperSketch({ title: "Transformers for image recognition" }).kind, "attention");
   assert.equal(paperSketch({ title: "Diffusion models of decision making" }).kind, "concepts");
   assert.equal(paperSketch({ title: "Text-to-image generation with diffusion models" }).kind, "diffusion");
   assert.equal(paperSketch({ title: "Evaluating Retrieval Quality in Retrieval-Augmented Generation" }).kind, "retrieval");
