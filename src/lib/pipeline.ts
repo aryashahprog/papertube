@@ -335,9 +335,24 @@ export function coherence(papers: Paper[], query: string) {
 }
 export function startHere(papers: Paper[], query?: string) {
   const terms = query === undefined ? [] : queryTokens(query);
+  const topic = (p: Paper) => p.topics?.[0] || p.theme;
+  const scores = new Map<string, number>();
+  [...papers]
+    .sort((a, b) => b.relevance - a.relevance)
+    .slice(0, 20)
+    .forEach((p) => {
+      const name = topic(p);
+      if (name && name !== "Other")
+        scores.set(name, (scores.get(name) || 0) + Math.max(1, p.relevance));
+    });
+  const strongest = Math.max(0, ...scores.values());
+  const core = new Set([...scores].filter(([, score]) => score === strongest).map(([name]) => name));
   return papers.filter((p) =>
     p.coherent !== false &&
-    (query === undefined || terms.some((t) => contains(normalized(p.title), t))),
+    (query === undefined ||
+      (terms.some((t) => contains(normalized(p.title), t)) &&
+        (core.has(topic(p)) ||
+          terms.every((t) => contains(normalized(p.title), t))))),
   ).slice(0, 5);
 }
 export function playThrough(papers: Paper[]) {
