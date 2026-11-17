@@ -447,7 +447,7 @@ test("OpenAlex topics admit GraphSAGE while incidental abstract mentions stay ou
   };
   assert.equal(matchesQuery(graphsage, "graph neural networks"), true);
   assert.equal(matchesQuery({ ...graphsage, topics: [] }, "graph neural networks"), false);
-  assert.equal(matchesQuery({ ...graphsage, title: "Learning embeddings" }, "graph neural networks"), false);
+  assert.equal(matchesQuery({ ...graphsage, title: "Learning embeddings" }, "graph neural networks"), true);
   const lecun = {
     ...p,
     id: "lecun",
@@ -459,6 +459,36 @@ test("OpenAlex topics admit GraphSAGE while incidental abstract mentions stay ou
   assert.deepEqual(startHere([lecun, graphsage], "graph neural networks"), [graphsage]);
   assert.deepEqual(startHere([lecun], "graph neural networks"), []);
   assert.deepEqual(startHere([], "graph neural networks"), []);
+});
+test("metadata-backed foundational papers survive matching and canon eligibility", () => {
+  const attention: Paper = {
+    ...p, id: "attention", doi: "10/attention", title: "Attention Is All You Need",
+    abstract: "We propose a new Transformer architecture for machine translation.",
+    topics: ["Natural Language Processing Techniques", "Topic Modeling", "Transformer", "Language model"],
+    citations: 151508, relevance: -1,
+  };
+  const peers = Array.from({ length: 20 }, (_, i): Paper => ({
+    ...p, id: `peer-${i}`, doi: `10/peer-${i}`, title: `Transformer language models ${i}`,
+    topics: ["Topic Modeling", "Transformer", "Language model"], relevance: 100 - i,
+    citations: 1000 + i,
+  }));
+  for (const query of ["transformer language models", "transformers"]) {
+    assert.equal(matchesQuery(attention, query), true);
+    const result = finish([attention, ...peers], "OpenAlex", query, 21);
+    assert.ok(result.papers.some(paper => paper.id === "attention"));
+    assert.ok(startHere(result.papers, query).some(paper => paper.id === "attention"));
+    assert.ok(!startHere([{ ...attention, citations: 5 }, ...peers], query).some(paper => paper.id === "attention"));
+    assert.ok(!startHere([{ ...attention, citations: 1018 }, ...peers], query).some(paper => paper.id === "attention"));
+    assert.ok(!startHere([{ ...attention, topics: ["Unrelated topic", "Transformer", "Language model"] }, ...peers], query).some(paper => paper.id === "attention"));
+    assert.ok(!startHere([{ ...attention, coherent: false }, ...peers], query).some(paper => paper.id === "attention"));
+  }
+  assert.equal(matchesQuery({ ...attention, topics: [] }, "transformer language models"), false);
+  assert.equal(matchesQuery({ ...attention, topics: ["Transformer"] }, "transformer language models"), false);
+  const mixed = peers.map((paper, i) => ({ ...paper,
+    topics: [i < 10 ? "Vision Transformers" : "Topic Modeling"], relevance: i < 10 ? 110 : 90,
+  }));
+  assert.ok(startHere([attention, ...mixed], "transformers").some(paper => paper.id === "attention"));
+  assert.deepEqual(startHere([attention], ""), []);
 });
 test("Start here uses relevance-weighted core topics without changing the full list", () => {
   const make = (title: string, topic: string, relevance: number): Paper => ({
