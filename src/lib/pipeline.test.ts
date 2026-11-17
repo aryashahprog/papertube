@@ -66,6 +66,15 @@ test("questions match content across title and abstract without accepting unrela
   assert.ok(matchesQuery({ ...p, title: "Sleep memory consolidation" }, "what are the best papers about sleep and memory"));
   assert.ok(!matchesQuery({ ...p, title: "Sleep improves memory" }, "sleep memory"));
 });
+test("long query coverage is independent of capitalization", () => {
+  const relevant = { ...p, title: "Graph network applications", abstract: "Neural methods for drug discovery" };
+  for (const query of ["graph neural network drug discovery", "Graph Neural Network Drug Discovery"]) {
+    assert.ok(matchesQuery(relevant, query));
+    assert.ok(!matchesQuery({ ...p, title: "Graph drawing algorithms" }, query));
+  }
+  for (const query of ["graph neural network", "Graph Neural Network"])
+    assert.ok(!matchesQuery(relevant, query));
+});
 test("short topic phrases retain meaningful stop words", () => {
   assert.ok(matchesQuery({ ...p, title: "Large language model capabilities" }, "large language models"));
   assert.ok(!matchesQuery({ ...p, title: "Large language corpora" }, "large language models"));

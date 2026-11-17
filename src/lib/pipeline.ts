@@ -232,14 +232,15 @@ const filler = new Set([
   ...stop,
   ..."what how why who which when where do does did can could would should be been being was were most important best key papers explain explaining explained about tell me us please they their than beat etc".split(" "),
 ]);
+function isContentQuery(query: string) {
+  const tokens = words(query).split(" ");
+  return tokens.length > 4 || query.includes("?") ||
+    /^(what|how|why|which|who|when|where|is|are|can|does|do)$/.test(tokens[0]);
+}
 function contentQuery(query: string) {
   if (examples.some((topic) => words(topic) === words(query))) return query;
+  if (!isContentQuery(query)) return query;
   const tokens = words(query).split(" ");
-  if (
-    tokens.length <= 4 &&
-    !query.includes("?") &&
-    !/^(what|how|why|which|who|when|where|is|are|can|does|do)$/.test(tokens[0])
-  ) return query;
   const terms = tokens.filter((word) => !filler.has(word));
   return terms.join(" ") || words(query);
 }
@@ -252,7 +253,7 @@ export function matchesQuery(p: Paper, query: string) {
   const terms = [...new Set(phrase.split(" "))];
   const texts = [p.title, p.abstract].map(normalized);
   if (texts.some((text) => contains(text, normalized(query)))) return true;
-  if (content === query) return false;
+  if (!isContentQuery(query)) return false;
   return terms.filter((term) => contains(texts.join(" "), term)).length >=
     (terms.length <= 3 ? terms.length : Math.ceil(terms.length * 0.6));
 }
