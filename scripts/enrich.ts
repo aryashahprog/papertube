@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
-import { validatedAbstract, takeaway, finish, startHere, type Dataset, type Paper } from "../src/lib/pipeline";
+import { validatedAbstract, takeaway, finish, startHere, examples, slug, type Dataset, type Paper } from "../src/lib/pipeline";
+import { createAbstractHydrator } from "../src/lib/abstracts";
 
 type Metadata = { abstract?: string; publicationTypes?: string[] };
 type Cache = { s2: Record<string, Metadata | null>; pmc: Record<string, Metadata | null> };
@@ -38,8 +39,45 @@ export async function request(url: string, init: RequestInit = {}, fetcher = fet
     await wait(delay);
   }
 }
+export async function backfillStartHere(data: Dataset, query: string, fetcher = fetch) {
+  const result = { ...data, papers: data.papers.map(paper => ({ ...paper })) };
+  const ranked = finish(data.papers, data.source, query, data.total);
+  const update = (updated: Paper) => {
+    result.papers = result.papers.map(paper => paper.id === updated.id ? { ...paper, abstract: updated.abstract, takeaway: updated.takeaway } : paper);
+  };
+  const service = createAbstractHydrator({ fetcher, onUpdate: update });
+  for (const paper of startHere(ranked.papers, query)) {
+    if (validatedAbstract(paper.title, paper.abstract)) continue;
+    const anthology = /^10\.18653\/v1\/([a-z0-9.-]+)$/i.exec(doi(paper.doi || ""));
+    if (anthology) try {
+      const response = await fetcher(`https://aclanthology.org/${anthology[1]}/`, { signal: AbortSignal.timeout(8000) });
+      const html = response.ok ? await response.text() : "";
+      const text = /class=["'][^"']*\bacl-abstract\b[^"']*["'][^>]*>[\s\S]*?<(?:span|p)>([\s\S]*?)<\/(?:span|p)>/i.exec(html)?.[1];
+      const abstract = validatedAbstract(paper.title, text);
+      if (abstract) { update(enrichPaper(paper, { abstract })); continue; }
+    } catch {}
+    await service.enqueue(paper);
+  }
+  service.abort();
+  return result;
+}
 export async function main() {
   const directory = resolve("public/data");
+  if (process.argv.includes("--start-here-only")) {
+    for (const file of (await readdir(directory)).filter(f => f.endsWith(".json")).sort()) {
+      const path = join(directory, file);
+      const original: Dataset = JSON.parse(await readFile(path, "utf8"));
+      const query = examples.find(topic => slug(topic) + ".json" === file) || file.replace(/\.json$/, "").replace(/-/g, " ");
+      const data = await backfillStartHere(original, query);
+      const ranked = finish(data.papers, data.source, query, data.total);
+      const selected = startHere(ranked.papers, query);
+      await writeFile(path, JSON.stringify(data));
+      const remaining = selected.filter(paper => !data.papers.find(p => p.id === paper.id)?.takeaway);
+      console.log(`${file}: Start here takeaways=${selected.length - remaining.length}/${selected.length}`);
+      remaining.forEach(paper => console.log(`Missing abstract: ${paper.title}`));
+    }
+    return;
+  }
   const cachePath = process.env.PAPERTUBE_ENRICH_CACHE || join(homedir(), ".papertube-enrichment.json");
   let cache: Cache = { s2: {}, pmc: {} };
   try { cache = JSON.parse(await readFile(cachePath, "utf8")); }

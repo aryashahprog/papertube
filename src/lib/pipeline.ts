@@ -719,7 +719,11 @@ function mapThemes(papers: Paper[], source: Dataset["source"], query: string) {
     const citations = papers.map(p => p.citations).sort((a, b) => b - a);
     const influential = citations[Math.floor(papers.length / 10)] || 1;
     const queryRoots = themeTokens(query);
-    const anchors = papers.filter(p => p.theme === "Other" && !p.abstract && p.citations >= influential).slice(0, 3);
+    const anchors = papers.filter(p => {
+      const label = [...themeTokens(p.theme)];
+      const title = themeTokens(p.title);
+      return p.citations >= influential && [...queryRoots].some(w => title.has(w)) && (p.theme === "Other" || (!label.some(w => queryRoots.has(w)) && !label.every(w => title.has(w))));
+    }).slice(0, 3);
     for (const anchor of anchors) {
       const words = anchor.title.toLowerCase().match(/[a-z]{3,}/g) || [];
       const candidates = words.flatMap((_, i) => [2, 3].flatMap(size => {

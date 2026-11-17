@@ -1236,14 +1236,14 @@ test("runtime abstracts fall back to Semantic Scholar after errors, mismatches o
     assert.equal(updated[0].abstract, sleepAbstract);
   }
 });
-test("runtime abstracts support PMID-only records and skip existing abstracts or absent identifiers", async () => {
+test("runtime abstracts support PMID-only records and skip existing abstracts or absent identifiers and titles", async () => {
   const urls: string[] = [], updated: Paper[] = [];
   const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: paper => updated.push(paper), fetcher: (async url => {
     urls.push(String(url));
     return Response.json({ resultList: { result: [{ source: "MED", id: "12345", abstractText: sleepAbstract }] } });
   }) as typeof fetch });
   await service.enqueue({ ...abstractPaper, abstract: sleepAbstract });
-  await service.enqueue({ ...abstractPaper, doi: "", id: "unknown", url: "" });
+  await service.enqueue({ ...abstractPaper, doi: "", id: "unknown", url: "", title: "" });
   assert.equal(urls.length, 0);
   await service.enqueue({ ...abstractPaper, doi: "", pmid: "12345" });
   assert.equal(new URL(urls[0]).searchParams.get("query"), "EXT_ID:12345 AND SRC:MED");
@@ -1289,11 +1289,11 @@ test("runtime abstracts fail silently, cache confirmed misses, tolerate storage 
   let calls = 0;
   const fetcher = (async url => {
     calls++;
-    return String(url).includes("europepmc") ? Response.json({ resultList: { result: [] } }) : Response.json({ abstract: null });
+    return String(url).includes("europepmc") ? Response.json({ resultList: { result: [] } }) : String(url).includes("search/match") ? Response.json({ data: [] }) : Response.json({ abstract: null });
   }) as typeof fetch;
   await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
   await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(updated.length, 0);
   const failedStorage = abstractCache();
   await createAbstractHydrator({ storage: failedStorage, fetcher: async () => { throw new TypeError("Network error"); }, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
@@ -1301,8 +1301,78 @@ test("runtime abstracts fail silently, cache confirmed misses, tolerate storage 
   const brokenStorage = { getItem: () => { throw new Error("Storage blocked"); }, setItem: () => { throw new Error("Storage full"); } };
   await createAbstractHydrator({ storage: brokenStorage, fetcher: async () => Response.json({ resultList: { result: [{ doi: "10.1000/sleep", abstractText: sleepAbstract }] } }), onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
   assert.equal(updated.length, 1);
-  storage.values.set("pt-abstract-v1:DOI:10.1000/sleep", JSON.stringify("A completely unrelated description of polymer coatings."));
+  storage.values.set("pt-abstract-v2:DOI:10.1000/sleep", JSON.stringify("A completely unrelated description of polymer coatings."));
   await createAbstractHydrator({ storage, fetcher, onUpdate: paper => updated.push(paper) }).enqueue(abstractPaper);
-  assert.equal(calls, 4);
+  assert.equal(calls, 6);
   assert.equal(updated.length, 1);
+});
+test("runtime abstracts try arXiv identifiers from DOI, landing and PDF URLs after a failed DOI lookup", async () => {
+  for (const location of [{ doi: "10.48550/arXiv.2006.11239" }, { doi: "", url: "https://arxiv.org/abs/2006.11239v2" }, { doi: "", pdf: "https://arxiv.org/pdf/2006.11239.pdf" }, { doi: "", url: "https://arxiv.org/abs/hep-th/9901001v3" }]) {
+    const urls: string[] = [], updated: Paper[] = [];
+    const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: p => updated.push(p), fetcher: (async url => {
+      urls.push(String(url));
+      return decodeURIComponent(String(url)).includes("/ARXIV:") ? Response.json({ abstract: sleepAbstract }) : new Response("", { status: 404 });
+    }) as typeof fetch });
+    await service.enqueue({ ...abstractPaper, ...location, abstract: "Sleep. docker pull invalid/abstract" });
+    assert.equal(updated.length, 1);
+    assert.equal(updated[0].abstract, sleepAbstract);
+    assert.match(decodeURIComponent(urls.at(-1)!), /\/ARXIV:(?:2006\.11239|hep-th\/9901001)\?fields=abstract$/);
+    assert.equal(urls.length, location.doi ? 3 : 1);
+  }
+});
+test("runtime title fallback accepts only normalized exact titles and supports papers without identifiers", async () => {
+  for (const match of [true, false]) {
+    const updated: Paper[] = [];
+    const service = createAbstractHydrator({ storage: abstractCache(), onUpdate: p => updated.push(p), fetcher: (async url => {
+      assert.ok(String(url).includes("search/match"));
+      assert.equal(new URL(String(url)).searchParams.get("query"), abstractPaper.title);
+      return Response.json({ data: [{ title: match ? "SLEEP and MEMORY." : "Sleep and memory in children", abstract: sleepAbstract }] });
+    }) as typeof fetch });
+    await service.enqueue({ ...abstractPaper, doi: "", url: "", pdf: "" });
+    assert.equal(updated.length, Number(match));
+  }
+});
+test("runtime title fallback follows failed identifiers without caching transient failures", async () => {
+  const storage = abstractCache(), urls: string[] = [], updated: Paper[] = [];
+  const fetcher = (async url => {
+    urls.push(String(url));
+    return String(url).includes("search/match") ? Response.json({ data: [{ title: abstractPaper.title, abstract: sleepAbstract }] }) : new Response("", { status: 429 });
+  }) as typeof fetch;
+  await createAbstractHydrator({ storage, fetcher, onUpdate: p => updated.push(p) }).enqueue(abstractPaper);
+  assert.equal(urls.length, 3);
+  assert.equal(updated[0].abstract, sleepAbstract);
+  const failed = abstractCache();
+  await createAbstractHydrator({ storage: failed, onUpdate: () => assert.fail("Unexpected update"), fetcher: async () => new Response("", { status: 429 }) }).enqueue(abstractPaper);
+  assert.equal(failed.values.size, 0);
+});
+test("runtime fallback preserves legacy positive cache entries but retries legacy misses", async () => {
+  for (const cached of ["", sleepAbstract]) {
+    const storage = abstractCache(), updated: Paper[] = [];
+    storage.values.set("pt-abstract-v1:DOI:10.1000/sleep", JSON.stringify(cached));
+    let calls = 0;
+    await createAbstractHydrator({ storage, onUpdate: p => updated.push(p), fetcher: async () => {
+      calls++;
+      return Response.json({ resultList: { result: [{ doi: "10.1000/sleep", abstractText: sleepAbstract }] } });
+    } }).enqueue(abstractPaper);
+    assert.equal(calls, Number(!cached));
+    assert.equal(updated[0].abstract, sleepAbstract);
+  }
+});
+test("runtime cancellation during arXiv fallback prevents title lookup and cached updates", async () => {
+  const storage = abstractCache();
+  let fallback!: () => void;
+  const started = new Promise<void>(resolve => { fallback = resolve; });
+  let calls = 0;
+  const service = createAbstractHydrator({ storage, onUpdate: () => assert.fail("Unexpected update"), fetcher: (async (_url, init) => {
+    calls++;
+    if (calls < 3) return new Response("", { status: 404 });
+    fallback();
+    return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+  }) as typeof fetch });
+  const done = service.enqueue({ ...abstractPaper, doi: "10.48550/arXiv.2006.11239" });
+  await started;
+  service.abort();
+  await done;
+  assert.equal(calls, 3);
+  assert.equal(storage.values.size, 0);
 });
